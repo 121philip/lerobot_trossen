@@ -9,7 +9,7 @@ from lerobot.robots.config import RobotConfig
 @dataclass
 class WidowXAIFollowerConfig(RobotConfig):
     # IP address of the arm
-    ip_address: str
+    ip_address: str = "192.168.2.3"
 
     # `max_relative_target` limits the magnitude of the relative positional target vector for
     # safety purposes. Set this to a positive scalar to have the same value for all motors, or a

@@ -8,7 +8,7 @@ from lerobot.teleoperators.config import TeleoperatorConfig
 @dataclass
 class WidowXAILeaderTeleopConfig(TeleoperatorConfig):
     # IP address of the arm
-    ip_address: str
+    ip_address: str = "192.168.1.2"
 
     # Joint names for the WidowX AI leader arm
     joint_names: list[str] = field(
