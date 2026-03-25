@@ -1,9 +1,10 @@
+from lerobot.scripts.lerobot_teleoperate import teleop_loop
 import rerun as rr
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.processor import make_default_processors
 from lerobot.robots import make_robot_from_config
 from lerobot.teleoperators import make_teleoperator_from_config
-from lerobot.utils.import_utils import register_third_party_devices
+from lerobot.utils.import_utils import register_third_party_plugins as register_third_party_devices
 from lerobot.utils.utils import init_logging
 from lerobot.utils.visualization_utils import init_rerun
 
@@ -45,7 +46,6 @@ teleop.connect()
 robot.connect()
 
 # ── Teleoperation loop ────────────────────────────────────────────────────────
-from lerobot.scripts.lerobot_teleoperate import teleop_loop
 
 try:
     teleop_loop(

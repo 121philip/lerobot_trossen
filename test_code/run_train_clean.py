@@ -9,12 +9,13 @@ from lerobot.scripts.lerobot_train import train
 from lerobot.configs import parser
 from lerobot.configs.policies import PreTrainedConfig
 
+
 def main():
     print("DEBUG: Script started", flush=True)
-    
+
     # 1. Capture original args
     args = sys.argv[1:]
-    
+
     # 2. Filter for draccus (like wrap does)
     # We know policy has path arg, so we filter it out for draccus
     filtered_args = parser.filter_path_args(["policy"], args)
@@ -26,10 +27,11 @@ def main():
     if policy_path:
         print(f"DEBUG: Loading policy from {policy_path}", flush=True)
         cli_overrides = parser.get_cli_overrides("policy", args)
-        cfg.policy = PreTrainedConfig.from_pretrained(policy_path, cli_overrides=cli_overrides)
+        cfg.policy = PreTrainedConfig.from_pretrained(
+            policy_path, cli_overrides=cli_overrides)
         from pathlib import Path
         cfg.policy.pretrained_path = Path(policy_path)
-    
+
     # 4. Modify policy
     if cfg.policy and "observation.images.camera3" in cfg.policy.input_features:
         print("WARNING: Detected 'observation.images.camera3' in config. Removing it...", flush=True)
@@ -48,10 +50,11 @@ def main():
             new_argv.append(arg)
     sys.argv = new_argv
     print("DEBUG: sys.argv modified to prevent reload", flush=True)
-    
+
     print("DEBUG: Starting training...", flush=True)
     # Run the training loop with the modified configuration
     train(cfg)
+
 
 if __name__ == "__main__":
     main()
