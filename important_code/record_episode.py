@@ -22,11 +22,9 @@ robot_cfg = WidowXAIFollowerConfig(
         # index_or_path: USB device index (from `ls /dev/video*`) or a file path
         # width/height:  capture resolution in pixels
         # fps:           target capture frame rate (should match the top-level FPS)
-
-        # "top":        OpenCVCameraConfig(index_or_path=14, width=640, height=480, fps=30),
+        
         "wrist":      OpenCVCameraConfig(index_or_path=2,  width=640, height=480, fps=30),
-        "side":       OpenCVCameraConfig(index_or_path=10, width=640, height=480, fps=30),
-        # "side_depth": OpenCVCameraConfig(index_or_path=8,  width=640, height=480, fps=30),
+        "right":       OpenCVCameraConfig(index_or_path=10, width=640, height=480, fps=30),
     },
 )
 
@@ -44,7 +42,7 @@ HF_USER = "kaixiyao"
 
 # Dataset repository name on Hugging Face Hub.
 # The full repo will be: {HF_USER}/{DATASET_NAME}
-DATASET_NAME = "widowxai-test"
+DATASET_NAME = "widowxai_grape_grasping"
 
 # Short description of the task being demonstrated in every episode.
 # This label is stored per-frame and is used for language-conditioned training.
@@ -52,11 +50,11 @@ TASK_DESCRIPTION = "Grab the grape"
 
 # Total number of episodes to record in this session.
 # Each episode = one full demonstration from start to end.
-NUM_EPISODES = 5
+NUM_EPISODES = 10
 
 # Duration of the active recording phase per episode (in seconds).
 # The robot records observations and actions for this long.
-EPISODE_TIME_S = 45
+EPISODE_TIME_S = 30
 
 # Duration of the environment reset phase between episodes (in seconds).
 # The robot keeps receiving teleop commands but nothing is saved to the dataset.
@@ -128,7 +126,7 @@ sys.argv = [
     # Number of background threads writing camera frames to disk, per camera.
     # Increase to 8 if you observe dropped frames or unstable FPS.
     "--dataset.num_image_writer_threads_per_camera=4",
-    # Disable voice announcements (requires spd-say / espeak which may not be installed)
+    # Enable voice narration of episode progress and status updates
     "--play_sounds=true",
 ]
 
