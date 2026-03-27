@@ -18,10 +18,8 @@ robot_cfg = WidowXAIFollowerConfig(
     ip_address="192.168.2.3",
     id="follower",
     cameras={
-        # "top":        OpenCVCameraConfig(index_or_path=14, width=640, height=480, fps=30),
         "wrist":      OpenCVCameraConfig(index_or_path=2,  width=640, height=480, fps=30),
         "side":       OpenCVCameraConfig(index_or_path=10, width=640, height=480, fps=30),
-        # "side_depth": OpenCVCameraConfig(index_or_path=8,  width=640, height=480, fps=30),
     },
 )
 
