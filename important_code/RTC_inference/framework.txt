@@ -1,0 +1,6 @@
+important_code/
+├── utils.py              ← 已有，补充共享常量
+├── robot_wrapper.py      ← 新建：RobotWrapper + 观测/动作格式转换
+├── inference_thread.py   ← 新建：推理线程
+├── actor_thread.py       ← 新建：执行线程
+└── run_inference_rtc.py  ← 保留：只剩 parse_args + main（大幅缩短）

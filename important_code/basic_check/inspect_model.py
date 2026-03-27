@@ -4,9 +4,7 @@ Usage: python inspect_model.py --train-dir outputs/train/smolvla_widowx_aluminum
 """
 
 import argparse
-
 import sys
-from pathlib import Path
 
 # Inspect 'lerobot' imports
 try:
@@ -15,43 +13,9 @@ except ImportError as e:
     print(f"Error importing lerobot: {e}")
     sys.exit(1)
 
-# Default path
-DEFAULT_TRAIN_DIR = "outputs/train/smolvla_widowx_grape_grasping"  # Change this to your actual training output directory
+from utils import resolve_checkpoint_path
 
-def resolve_checkpoint_path(train_dir):
-    """
-    Resolves the actual path to the latest checkpoint.
-    Reads 'checkpoints/last' file if it exists to find the step number.
-    Strictly follows 'checkpoints/last'.
-    """
-    base_path = Path(train_dir)
-    checkpoints_dir = base_path / "checkpoints"
-    
-    if not checkpoints_dir.exists():
-        raise FileNotFoundError(f"Checkpoints directory not found at: {checkpoints_dir}")
-
-    last_ptr = checkpoints_dir / "last"
-    if not last_ptr.exists():
-        raise FileNotFoundError(f"Could not find 'last' pointer at: {last_ptr}")
-
-    # Case A: 'last' is a symlink to a directory or a directory itself (LeRobot default)
-    if last_ptr.is_dir():
-        checkpoint_dir = last_ptr
-    
-    # Case B: 'last' is a text file containing the directory name (Legacy/Alternative)
-    elif last_ptr.is_file():
-        with open(last_ptr, "r") as f:
-            step_name = f.read().strip()
-        checkpoint_dir = checkpoints_dir / step_name
-        
-    else:
-        raise ValueError(f"'last' at {last_ptr} is neither a directory nor a file.")
-
-    checkpoint_path = checkpoint_dir / "pretrained_model"
-    if not checkpoint_path.exists():
-         raise FileNotFoundError(f"Checkpoint path pointed to by 'last' does not exist: {checkpoint_path}")
-
-    return str(checkpoint_path)
+DEFAULT_TRAIN_DIR = "outputs/train/smolvla_widowx_grape_grasping"
 
 def print_section(title):
     print(f"\n{'='*20} {title} {'='*20}")

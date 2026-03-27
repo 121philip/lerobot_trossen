@@ -24,7 +24,6 @@ import math
 import sys
 import time
 from copy import copy
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -43,31 +42,14 @@ except ImportError as e:
     print(f"Error importing lerobot: {e}")
     sys.exit(1)
 
+from important_code.utils import resolve_checkpoint_path
+
 DEFAULT_TRAIN_DIR = "outputs/train/smolvla_widowx_grape_grasping"
 DATASET_REPO_ID = "kaixiyao/widowxai_grape_grasping"
 TASK = "The robot grasps a grape"
 JOINT_NAMES = ["joint_0", "joint_1", "joint_2",
                "joint_3", "joint_4", "joint_5", "gripper"]
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def resolve_checkpoint_path(train_dir: str) -> str:
-    """Return path to the pretrained_model dir inside the last checkpoint."""
-    last_ptr = Path(train_dir) / "checkpoints" / "last"
-    if not last_ptr.exists():
-        raise FileNotFoundError(
-            f"No checkpoint 'last' pointer found at: {last_ptr}")
-    if last_ptr.is_dir():
-        checkpoint_dir = last_ptr
-    elif last_ptr.is_file():
-        checkpoint_dir = last_ptr.parent / last_ptr.read_text().strip()
-    else:
-        raise ValueError(
-            f"'last' at {last_ptr} is neither a file nor a directory.")
-    pretrained = checkpoint_dir / "pretrained_model"
-    if not pretrained.exists():
-        raise FileNotFoundError(f"pretrained_model not found at: {pretrained}")
-    return str(pretrained)
 
 
 def frame_to_obs_numpy(frame: dict) -> dict:
@@ -179,7 +161,7 @@ def run_rtc_simulation(
 
         action = action_queue.get()
         executed_actions.append(
-            action.numpy() if action is not None else np.zeros(7))
+            action.numpy() if action is not None else np.zeros(len(JOINT_NAMES)))
 
     return np.array(executed_actions), np.array(gt_actions), chunk_frames, latencies
 
@@ -225,12 +207,11 @@ def plot_results(
     else:
         plt.show()
 
-    # Print stats
     mae = np.abs(executed - gt).mean(axis=0)
     print("\n--- Action MAE per joint ---")
     for name, err in zip(joint_names, mae):
         print(f"  {name}: {err:.4f}")
-    print(f"  Overall MAE: {np.abs(executed - gt).mean():.4f}")
+    print(f"  Overall MAE: {mae.mean():.4f}")
 
     if latencies:
         print("\n--- Inference Latency ---")
