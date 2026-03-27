@@ -11,16 +11,22 @@ Architecture:
 
 Usage:
   # Dry run (no robot hardware needed):
-  python test_code/run_inference_rtc.py --dry-run
+  python important_code/run_inference_rtc.py --dry-run
 
   # With robot (default IP):
-  python test_code/run_inference_rtc.py --robot-ip 192.168.2.3
+  python important_code/run_inference_rtc.py --robot-ip 192.168.2.3
+
+  # Use a different local checkpoint:
+  python important_code/run_inference_rtc.py --train-dir outputs/train/my_run
 
   # Tune RTC parameters:
-  python test_code/run_inference_rtc.py --execution-horizon 10 --guidance-weight 10.0
+  python important_code/run_inference_rtc.py --execution-horizon 10 --guidance-weight 10.0
 
   # Set duration limit:
-  python test_code/run_inference_rtc.py --duration 120
+  python important_code/run_inference_rtc.py --duration 120
+  python important_code/run_inference_rtc.py --dry-run --debug
+  python important_code/run_inference_rtc.py --dry-run --debug --debug-maxlen 200
+
 """
 
 import logging
@@ -51,17 +57,21 @@ except ImportError as e:
     print("Requires lerobot >= 0.4.3 with RTC support.")
     sys.exit(1)
 
+try:
+    from lerobot.policies.rtc.debug_visualizer import RTCDebugVisualizer
+    _HAS_DEBUG_VISUALIZER = True
+except ImportError:
+    _HAS_DEBUG_VISUALIZER = False
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # === Configuration Defaults ===
 DEFAULT_ROBOT_IP = "192.168.2.3"
-DEFAULT_CAM_HIGH_ID = 10
-DEFAULT_CAM_WRIST_ID = 2
-DEFAULT_CAM_SIDE_ID = 16
-DEFAULT_CAM_SIDE_DEPTH_ID = 14
-HF_MODEL_REPO = "kaixiyao/smolvla_widowx_aluminum_V2"
-TASK_DESCRIPTION = "The robot grabs an aluminum profile and puts it into the box"
+DEFAULT_CAM1_ID = 2   # wrist camera
+DEFAULT_CAM2_ID = 10  # right camera
+DEFAULT_TRAIN_DIR = "outputs/train/smolvla_widowx_grape_grasping"
+TASK_DESCRIPTION = "The robot grasps a grape"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 JOINT_NAMES = [
@@ -109,10 +119,10 @@ def robot_obs_to_policy_obs(raw_obs, joint_names):
     prepare_observation_for_inference / the preprocessor pipeline.
 
     Robot returns:
-        {"joint_0.pos": float, ..., "cam_high": ndarray, "cam_wrist": ndarray}
+        {"joint_0.pos": float, ..., "wrist": ndarray, "right": ndarray}
 
     Policy expects:
-        {"observation.state": ndarray(7,), "observation.images.cam_high": ndarray, ...}
+        {"observation.state": ndarray(7,), "observation.images.wrist": ndarray, ...}
     """
     obs = {}
 
@@ -127,15 +137,11 @@ def robot_obs_to_policy_obs(raw_obs, joint_names):
             joint_positions.append(0.0)
     obs["observation.state"] = np.array(joint_positions, dtype=np.float32)
 
-    # Copy camera images
-    if "cam_high" in raw_obs:
-        obs["observation.images.cam_high"] = raw_obs["cam_high"]
-    if "cam_wrist" in raw_obs:
-        obs["observation.images.cam_wrist"] = raw_obs["cam_wrist"]
-    if "cam_side" in raw_obs:
-        obs["observation.images.cam_side"] = raw_obs["cam_side"]
-    if "cam_side_depth" in raw_obs:
-        obs["observation.images.cam_side_depth"] = raw_obs["cam_side_depth"]
+    # Copy camera images (preprocessor rename_map: wrist→camera1, right→camera2)
+    if "wrist" in raw_obs:
+        obs["observation.images.wrist"] = raw_obs["wrist"]
+    if "right" in raw_obs:
+        obs["observation.images.right"] = raw_obs["right"]
 
     return obs
 
@@ -145,10 +151,8 @@ def create_mock_observation(joint_names):
     obs = {}
     for name in joint_names:
         obs[f"{name}.pos"] = 0.0
-    obs["cam_high"] = np.zeros((480, 640, 3), dtype=np.uint8)
-    obs["cam_wrist"] = np.zeros((480, 640, 3), dtype=np.uint8)
-    obs["cam_side"] = np.zeros((480, 640, 3), dtype=np.uint8)
-    obs["cam_side_depth"] = np.zeros((480, 640, 3), dtype=np.uint8)
+    obs["wrist"] = np.zeros((480, 640, 3), dtype=np.uint8)
+    obs["right"] = np.zeros((480, 640, 3), dtype=np.uint8)
     return obs
 
 
@@ -212,7 +216,7 @@ def inference_thread_fn(
                 action_index_before_inference = action_queue.get_action_index()
                 prev_actions = action_queue.get_left_over()
 
-                inference_latency = latency_tracker.max()
+                inference_latency = latency_tracker.max() or 0.0
                 inference_delay = math.ceil(inference_latency / time_per_chunk)
 
                 # Get observation
@@ -348,16 +352,16 @@ def parse_args():
 
     # Robot
     parser.add_argument("--robot-ip", type=str, default=DEFAULT_ROBOT_IP)
-    parser.add_argument("--cam-high", type=int, default=DEFAULT_CAM_HIGH_ID)
-    parser.add_argument("--cam-wrist", type=int, default=DEFAULT_CAM_WRIST_ID)
-    parser.add_argument("--cam-side", type=int, default=DEFAULT_CAM_SIDE_ID)
-    parser.add_argument("--cam-side-depth", type=int, default=DEFAULT_CAM_SIDE_DEPTH_ID)
+    parser.add_argument("--cam1", type=int, default=DEFAULT_CAM1_ID,
+                        help="Camera index for camera1 (default: 10)")
+    parser.add_argument("--cam2", type=int, default=DEFAULT_CAM2_ID,
+                        help="Camera index for camera2 (default: 2)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Run without robot hardware")
 
     # Policy
-    parser.add_argument("--model-repo", type=str, default=HF_MODEL_REPO,
-                        help="HuggingFace model repo ID or local path")
+    parser.add_argument("--train-dir", type=str, default=DEFAULT_TRAIN_DIR,
+                        help="Path to local training output directory")
     parser.add_argument("--task", type=str, default=TASK_DESCRIPTION)
 
     # Control
@@ -381,6 +385,12 @@ def parse_args():
     parser.add_argument("--queue-threshold", type=int, default=30,
                         help="Request new chunk when queue drops below this (default: 30)")
 
+    # Debug tracking
+    parser.add_argument("--debug", action="store_true",
+                        help="Enable RTC built-in debug tracking")
+    parser.add_argument("--debug-maxlen", type=int, default=100,
+                        help="Max entries stored in RTC debug buffer (default: 100)")
+
     return parser.parse_args()
 
 
@@ -393,7 +403,7 @@ def main():
     # ============================================================
     # 1. Load Policy with RTC Config
     # ============================================================
-    policy_path = args.model_repo
+    policy_path = resolve_checkpoint_path(args.train_dir)
     logger.info(f"Loading policy from: {policy_path}")
     policy = SmolVLAPolicy.from_pretrained(policy_path)
 
@@ -404,6 +414,11 @@ def main():
         max_guidance_weight=args.guidance_weight,
         prefix_attention_schedule=RTCAttentionSchedule[args.attention_schedule],
     )
+    if args.debug:
+        rtc_config.debug = True
+        rtc_config.debug_maxlen = args.debug_maxlen
+        logger.info(f"RTC debug tracking enabled (maxlen={args.debug_maxlen})")
+
     policy.config.rtc_config = rtc_config
     policy.init_rtc_processor()
 
@@ -434,17 +449,11 @@ def main():
             from lerobot.robots.utils import make_robot_from_config
 
             camera_config_map = {
-                "cam_high": OpenCVCameraConfig(
-                    index_or_path=args.cam_high, fps=args.fps, width=640, height=480
+                "wrist": OpenCVCameraConfig(
+                    index_or_path=args.cam1, fps=args.fps, width=640, height=480
                 ),
-                "cam_wrist": OpenCVCameraConfig(
-                    index_or_path=args.cam_wrist, fps=args.fps, width=640, height=480
-                ),
-                "cam_side": OpenCVCameraConfig(
-                    index_or_path=args.cam_side, fps=args.fps, width=640, height=480
-                ),
-                "cam_side_depth": OpenCVCameraConfig(
-                    index_or_path=args.cam_side_depth, fps=args.fps, width=640, height=480
+                "right": OpenCVCameraConfig(
+                    index_or_path=args.cam2, fps=args.fps, width=640, height=480
                 ),
             }
 
@@ -535,6 +544,21 @@ def main():
     if robot:
         robot.disconnect()
         logger.info("Robot disconnected.")
+
+    # ============================================================
+    # 7. Debug Data (if enabled)
+    # ============================================================
+    if args.debug and hasattr(policy, "rtc_processor") and policy.rtc_processor is not None:
+        debug_data = policy.rtc_processor.get_debug_data()
+        logger.info(f"[DEBUG] RTC debug data keys: {list(debug_data.keys())}")
+        for key, val in debug_data.items():
+            logger.info(f"[DEBUG]   {key}: {val}")
+
+        if _HAS_DEBUG_VISUALIZER:
+            visualizer = RTCDebugVisualizer()
+            visualizer.plot(debug_data)
+        else:
+            logger.info("[DEBUG] RTCDebugVisualizer not available — skipping plots.")
 
     logger.info("Done.")
 

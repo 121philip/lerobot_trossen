@@ -16,7 +16,7 @@ except ImportError as e:
     sys.exit(1)
 
 # Default path
-DEFAULT_TRAIN_DIR = "outputs/train/smolvla_widowx_aluminum"
+DEFAULT_TRAIN_DIR = "outputs/train/smolvla_widowx_grape_grasping"  # Change this to your actual training output directory
 
 def resolve_checkpoint_path(train_dir):
     """
