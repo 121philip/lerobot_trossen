@@ -52,7 +52,11 @@ import argparse
 import logging
 import sys
 import time
+from pathlib import Path
 from threading import Event, Thread
+
+# Ensure project root is on the path when running as a script
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 try:
     from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
@@ -73,9 +77,9 @@ except ImportError:
     _HAS_DEBUG_VISUALIZER = False
 
 from important_code.utils import DEVICE, resolve_checkpoint_path
-from robot_wrapper import RobotWrapper
-from inference_thread import inference_thread_fn
-from actor_thread import actor_thread_fn
+from important_code.RTC_inference.robot_wrapper import RobotWrapper
+from important_code.RTC_inference.inference_thread import inference_thread_fn
+from important_code.RTC_inference.actor_thread import actor_thread_fn
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
