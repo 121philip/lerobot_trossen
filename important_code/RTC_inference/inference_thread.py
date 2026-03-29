@@ -77,6 +77,7 @@ def inference_thread_fn(
                 # "当这个新块被用到时，机械臂已经额外走了多少步"。
                 inference_latency = latency_tracker.max() or 0.0
                 inference_delay = math.ceil(inference_latency / time_per_step)
+                logger.debug("inference_delay=%s", inference_delay)
 
                 # ── C. 获取当前观测 ──
                 if robot_wrapper is not None:
@@ -105,8 +106,8 @@ def inference_thread_fn(
                 )
                 # actions.shape: [1, chunk_size, action_dim]
                 # 例如: torch.Size([1, 50, 7]) → [批次=1, 未来50步, 7个关节]
-                print("Raw chunk shape:", actions.shape)
-                print("Future base joint trajectory:", actions[0, :, 0].cpu().numpy())
+                logger.debug("Raw chunk shape: %s", actions.shape)
+                logger.debug("Future base joint trajectory: %s", actions[0, :, 0].cpu().numpy())
 
                 # ── F. 保存原始动作 + 后处理 + 记录延迟 ──
                 # merge 需要归一化空间的原始动作来计算引导梯度

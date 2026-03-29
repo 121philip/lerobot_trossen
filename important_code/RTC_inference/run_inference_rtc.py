@@ -144,6 +144,8 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
     logger.info(f"Device: {DEVICE}")
     logger.info(f"RTC: {'开启' if args.rtc else '关闭（标准模式）'}")
 
@@ -167,8 +169,12 @@ def main():
     policy.to(DEVICE).eval()
 
     # ── 2. 加载预处理器 & 后处理器 ──────────────────────────────
+    device_overrides = {"device_processor": {"device": str(DEVICE)}}
     preprocessor, postprocessor = make_pre_post_processors(
-        policy.config, pretrained_path=policy_path,
+        policy.config,
+        pretrained_path=policy_path,
+        preprocessor_overrides=device_overrides,
+        postprocessor_overrides=device_overrides,
     )
     logger.info("Processors loaded.")
 
@@ -222,14 +228,17 @@ def main():
 
     # ── 5. 主线程：计时监控，到时或 Ctrl+C 后触发关闭 ───────────
     start_time = time.time()
+    last_logged_window = -1
     try:
         while not shutdown_event.is_set():
             elapsed = time.time() - start_time
             if elapsed >= args.duration:
                 logger.info(f"Duration limit ({args.duration}s) reached.")
                 break
-            if int(elapsed) % 10 == 0 and int(elapsed) > 0:
+            window = int(elapsed) // 10
+            if window > 0 and window != last_logged_window:
                 logger.info(f"[MAIN] {elapsed:.0f}s elapsed, queue={action_queue.qsize()}")
+                last_logged_window = window
             time.sleep(1.0)
     except KeyboardInterrupt:
         logger.info("Ctrl+C received, shutting down...")

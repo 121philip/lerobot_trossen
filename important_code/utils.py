@@ -13,11 +13,22 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def resolve_checkpoint_path(train_dir: str) -> str:
-    """Return path to the pretrained_model dir inside the last checkpoint."""
-    last_ptr = Path(train_dir) / "checkpoints" / "last"
+    """Return path to the pretrained_model dir inside the last checkpoint.
+
+    If train_dir looks like a HuggingFace repo ID (e.g. 'username/model-name'),
+    return it as-is so from_pretrained() can download it directly from the Hub.
+    """
+    # HF repo ID has exactly one '/' (owner/repo) and is not a local path
+    p = Path(train_dir)
+    if not p.exists() and train_dir.count("/") == 1 and not train_dir.startswith("/"):
+        return train_dir  # treat as HF Hub repo ID
+
+    last_ptr = p / "checkpoints" / "last"
     if not last_ptr.exists():
         raise FileNotFoundError(
-            f"No checkpoint 'last' pointer found at: {last_ptr}")
+            f"No checkpoint 'last' pointer found at: {last_ptr}\n"
+            f"Tip: pass a HuggingFace repo ID (e.g. 'username/model-name') "
+            f"to load directly from the Hub.")
     if last_ptr.is_dir():
         checkpoint_dir = last_ptr
     elif last_ptr.is_file():
