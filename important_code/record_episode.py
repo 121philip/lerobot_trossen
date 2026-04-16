@@ -42,11 +42,11 @@ HF_USER = "kaixiyao"
 
 # Dataset repository name on Hugging Face Hub.
 # The full repo will be: {HF_USER}/{DATASET_NAME}
-DATASET_NAME = "widowxai_grape_grasping_V2"
+DATASET_NAME = "widowxai_grape_grasping_V3"
 
 # Short description of the task being demonstrated in every episode.
 # This label is stored per-frame and is used for language-conditioned training.
-TASK_DESCRIPTION = "Grab the grape and then put it down"
+TASK_DESCRIPTION = "Grab the grape"
 
 # Total number of episodes to record in this session.
 # Each episode = one full demonstration from start to end.

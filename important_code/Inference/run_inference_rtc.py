@@ -77,9 +77,9 @@ except ImportError:
     _HAS_DEBUG_VISUALIZER = False
 
 from important_code.utils import DEVICE, resolve_checkpoint_path
-from important_code.RTC_inference.robot_wrapper import RobotWrapper
-from important_code.RTC_inference.inference_thread import inference_thread_fn
-from important_code.RTC_inference.actor_thread import actor_thread_fn
+from important_code.Inference.robot_wrapper import RobotWrapper
+from important_code.Inference.inference_thread import inference_thread_fn
+from important_code.Inference.actor_thread import actor_thread_fn
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
