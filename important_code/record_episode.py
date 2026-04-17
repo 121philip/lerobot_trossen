@@ -23,8 +23,8 @@ robot_cfg = WidowXAIFollowerConfig(
         # width/height:  capture resolution in pixels
         # fps:           target capture frame rate (should match the top-level FPS)
         
-        "wrist":      OpenCVCameraConfig(index_or_path=2,  width=640, height=480, fps=30),
-        "right":       OpenCVCameraConfig(index_or_path=10, width=640, height=480, fps=30),
+        "wrist":      OpenCVCameraConfig(index_or_path=10, width=640, height=480, fps=30),
+        "right":       OpenCVCameraConfig(index_or_path=2,  width=640, height=480, fps=30),
     },
 )
 
@@ -93,8 +93,8 @@ sys.argv = [
     # Camera definitions in YAML-like inline dict format.
     # Keys must match those used in robot_cfg.cameras above.
     "--robot.cameras={"
-    "wrist: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}, "
-    "right: {type: opencv, index_or_path: 10, width: 640, height: 480, fps: 30}"
+    "wrist: {type: opencv, index_or_path: 10, width: 640, height: 480, fps: 30}, "
+    "right: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}"
     "}",
 
     # Teleoperator type registered by the Trossen plugin

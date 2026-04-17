@@ -33,19 +33,19 @@
 
 Usage:
   # 干跑（无硬件，测试推理流程）：
-  python important_code/RTC_inference/run_inference_rtc.py --dry-run
+  python important_code/Inference/run_inference_rtc.py --dry-run
 
   # 标准模式，连接机器人：
-  python important_code/RTC_inference/run_inference_rtc.py --robot-ip 192.168.2.3
+  python important_code/Inference/run_inference_rtc.py --robot-ip 192.168.2.3
 
   # 开启 RTC（推荐，动作更平滑）：
-  python important_code/RTC_inference/run_inference_rtc.py --rtc
+  python important_code/Inference/run_inference_rtc.py --rtc
 
   # 指定训练输出目录：
-  python important_code/RTC_inference/run_inference_rtc.py --train-dir outputs/train/my_run --rtc
+  python important_code/Inference/run_inference_rtc.py --train-dir outputs/train/my_run --rtc
 
   # 调试模式：
-  python important_code/RTC_inference/run_inference_rtc.py --dry-run --debug
+  python important_code/Inference/run_inference_rtc.py --dry-run --debug
 """
 
 import argparse
@@ -86,9 +86,9 @@ logger = logging.getLogger(__name__)
 
 # === 默认配置 ===
 DEFAULT_ROBOT_IP   = "192.168.2.3"
-DEFAULT_CAM1_ID    = 2    # 手腕摄像头
-DEFAULT_CAM2_ID    = 10   # 右侧摄像头
-DEFAULT_TRAIN_DIR  = "outputs/train/smolvla_widowx_grape_grasping"
+DEFAULT_CAM1_ID    = 10   # 手腕摄像头
+DEFAULT_CAM2_ID    = 2    # 右侧摄像头
+DEFAULT_TRAIN_DIR  = "outputs/train/smolvla_widowx_grape_grasping_V3"  # 替换为实际训练输出目录
 TASK_DESCRIPTION   = "Grab the grape"
 
 
@@ -100,9 +100,9 @@ def parse_args():
     # 硬件
     parser.add_argument("--robot-ip",  type=str, default=DEFAULT_ROBOT_IP)
     parser.add_argument("--cam1",      type=int, default=DEFAULT_CAM1_ID,
-                        help="手腕摄像头索引 (默认: 2)")
+                        help="手腕摄像头索引 (默认: 10)")
     parser.add_argument("--cam2",      type=int, default=DEFAULT_CAM2_ID,
-                        help="右侧摄像头索引 (默认: 10)")
+                        help="右侧摄像头索引 (默认: 2)")
     parser.add_argument("--dry-run",   action="store_true",
                         help="干跑模式，无需真实机器人硬件")
 
