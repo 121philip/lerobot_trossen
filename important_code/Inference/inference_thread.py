@@ -10,8 +10,14 @@ RTC 每次迭代步骤：
   C. 读取当前观测（真实机器人 or mock）
   D. 预处理观测（归一化、tokenize 任务描述）
   E. 调用 predict_action_chunk() 生成动作块（在 no_grad 外，RTC 需要 autograd）
-  F. 后处理（反归一化）+ 记录本次延迟
+  F. 后处理（反归一化）+ 记录本次延迟 + （可选）推送给 RVizPublisher
   G. 将新块融合进动作队列
+
+RViz 集成（rviz_publisher 不为 None 时）：
+  - 每次推理后（步骤 F），将反归一化后的完整动作块（shape=[50, 7]）推送给 RVizPublisher
+  - RVizPublisher 发布到 /predicted/joint_states（chunk 第一帧，显示为红色透明机器人）
+    和 /predicted_trajectory（完整50步，可用 rqt_plot 或自定义工具分析）
+  - 注意：推送的是后处理后的真实关节角（弧度/米），与实际执行单位一致，可直接比较
 """
 
 import logging
@@ -41,6 +47,7 @@ def inference_thread_fn(
     action_queue: ActionQueue,
     shutdown_event: Event,
     args,
+    rviz_publisher=None,    # RVizPublisher 实例，None 表示不可视化
 ):
     """
     后台推理线程：持续监控动作队列，当队列动作不足时调用模型生成新动作块。
@@ -53,6 +60,9 @@ def inference_thread_fn(
         action_queue:    共享动作队列（推理线程写入，执行线程读取）
         shutdown_event:  全局关闭信号
         args:            命令行参数（fps、task、queue_threshold 等）
+        rviz_publisher:  RVizPublisher 实例（--rviz 时由 run_inference_rtc.py 传入）
+                         传入后每块推理完成后将预测动作发布到 /predicted/joint_states
+                         不传（默认 None）则不启用可视化，不影响推理性能
     """
     try:
         logger.info("[INFERENCE] Starting inference thread")
@@ -125,6 +135,9 @@ def inference_thread_fn(
                         f"should be > execution_horizon + delay "
                         f"({args.execution_horizon + new_delay})"
                     )
+
+                if rviz_publisher is not None:
+                    rviz_publisher.put_predicted(postprocessed_actions.cpu().numpy())
 
                 # ── G. 融合新块进动作队列（RTC 核心操作）──
                 # merge 在 execution_horizon 步的过渡区内以 guidance_weight 强度

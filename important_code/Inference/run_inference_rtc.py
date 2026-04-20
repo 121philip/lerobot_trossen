@@ -1,8 +1,8 @@
 """
-┌─────────────────────────────────────────────────────┐
-│  主线程 Main Thread                                   │
-│  计时 + 监控 + 处理 Ctrl+C                            │
-└──────────────┬──────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  主线程 Main Thread                                               │
+│  计时 + 监控 + 处理 Ctrl+C                                        │
+└──────────────┬──────────────────────────────────────────────────┘
                │ shutdown_event (Event)
        ┌───────┴────────┐
        ▼                ▼
@@ -20,6 +20,20 @@
        └────────┬─────────┘
                 ▼
          (RTC 融合动作块)
+                │
+                │ （可选）--rviz
+                ▼
+       ┌──────────────────┐
+       │  RViz Publisher  │
+       │  Thread          │
+       │                  │
+       │ /actual/         │
+       │   joint_states   │ ← 实际执行位置（蓝色实体机器人）
+       │ /predicted/      │
+       │   joint_states   │ ← 预测目标位置（红色透明机器人）
+       │ /predicted_      │
+       │   trajectory     │ ← 完整50步预测轨迹
+       └──────────────────┘
 
 在 WidowX 机器人上运行 SmolVLA 策略推理。
 
@@ -27,9 +41,10 @@
   标准模式（默认）：执行完一整块动作后再生成下一块
   RTC 模式（--rtc）：异步生成并融合动作块，消除块切换时的抖动/停顿
 
-三线程架构：
+三（或四）线程架构：
   推理线程 → ActionQueue → 执行线程 → 机器人
   主线程负责计时监控和协调关闭
+  RViz 发布线程（--rviz 时启动）→ 可视化实际轨迹与预测轨迹
 
 Usage:
   # 干跑（无硬件，测试推理流程）：
@@ -46,6 +61,27 @@ Usage:
 
   # 调试模式：
   python important_code/Inference/run_inference_rtc.py --dry-run --debug
+
+  # 开启 RViz 可视化（需要先在另一个终端运行 launch_viz.sh）：
+  python important_code/Inference/run_inference_rtc.py --rviz
+  python important_code/Inference/run_inference_rtc.py --dry-run --rviz   # 干跑验证
+
+RViz 可视化使用步骤：
+  1. 终端1（先启动）：
+       bash important_code/rviz_config/launch_viz.sh
+     该脚本会启动两个 robot_state_publisher 并打开 RViz2。
+
+  2. 终端2（后启动）：
+       python important_code/Inference/run_inference_rtc.py --rviz [其他参数]
+
+  3. RViz 中可以看到：
+       蓝色实体机器人  = 实际执行的关节位置（/actual/joint_states）
+       红色透明机器人  = 模型预测的下一步目标位（/predicted/joint_states）
+
+  4. 诊断方法：
+       预测(红)抖动、执行(蓝)也抖 → 模型预测本身不稳定，考虑调整 guidance_weight
+       预测(红)平滑、执行(蓝)抖动 → 执行层问题（max_relative_target 截断或硬件延迟）
+       两者位置长期有偏差         → 归一化参数或关节映射问题
 """
 
 import argparse
@@ -133,6 +169,10 @@ def parse_args():
     parser.add_argument("--queue-threshold", type=int, default=30,
                         help="RTC: 队列低于此值时触发新推理（默认: 30）")
 
+    # 可视化
+    parser.add_argument("--rviz", action="store_true",
+                        help="启用 RViz 轨迹可视化（需要 ROS2 Humble 已安装）")
+
     # 调试
     parser.add_argument("--debug",          action="store_true",
                         help="开启 RTC 内置调试追踪")
@@ -209,17 +249,27 @@ def main():
     shutdown_event = Event()
     action_queue = ActionQueue(rtc_config)
 
+    # （可选）启动 RViz 可视化发布线程
+    rviz_publisher = None
+    if args.rviz:
+        from important_code.Inference.rviz_publisher import RVizPublisher
+        rviz_publisher = RVizPublisher()
+        rviz_publisher.start()
+        logger.info("RViz publisher started — run launch_viz.sh to open RViz.")
+
     logger.info(f"Task: {args.task} | FPS: {args.fps} | Duration: {args.duration}s")
 
     inf_thread = Thread(
         target=inference_thread_fn,
         args=(policy, robot_wrapper, preprocessor, postprocessor,
               action_queue, shutdown_event, args),
+        kwargs={"rviz_publisher": rviz_publisher},
         daemon=True, name="InferenceThread",
     )
     act_thread = Thread(
         target=actor_thread_fn,
         args=(robot_wrapper, action_queue, shutdown_event, args),
+        kwargs={"rviz_publisher": rviz_publisher},
         daemon=True, name="ActorThread",
     )
     inf_thread.start()
