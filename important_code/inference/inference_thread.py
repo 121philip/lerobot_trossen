@@ -34,7 +34,7 @@ from lerobot.policies.rtc.action_queue import ActionQueue
 from lerobot.policies.rtc.latency_tracker import LatencyTracker
 
 from important_code.utils import DEVICE, JOINT_NAMES
-from important_code.Inference.robot_wrapper import create_mock_observation, robot_obs_to_policy_obs
+from important_code.inference.robot_wrapper import create_mock_observation, robot_obs_to_policy_obs
 
 logger = logging.getLogger(__name__)
 

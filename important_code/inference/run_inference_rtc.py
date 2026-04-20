@@ -113,9 +113,9 @@ except ImportError:
     _HAS_DEBUG_VISUALIZER = False
 
 from important_code.utils import DEVICE, resolve_checkpoint_path
-from important_code.Inference.robot_wrapper import RobotWrapper
-from important_code.Inference.inference_thread import inference_thread_fn
-from important_code.Inference.actor_thread import actor_thread_fn
+from important_code.inference.robot_wrapper import RobotWrapper
+from important_code.inference.inference_thread import inference_thread_fn
+from important_code.inference.actor_thread import actor_thread_fn
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -252,7 +252,7 @@ def main():
     # （可选）启动 RViz 可视化发布线程
     rviz_publisher = None
     if args.rviz:
-        from important_code.Inference.rviz_publisher import RVizPublisher
+        from important_code.inference.rviz_publisher import RVizPublisher
         rviz_publisher = RVizPublisher()
         rviz_publisher.start()
         logger.info("RViz publisher started — run launch_viz.sh to open RViz.")

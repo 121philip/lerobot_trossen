@@ -19,7 +19,7 @@ from threading import Event
 
 from lerobot.policies.rtc.action_queue import ActionQueue
 
-from important_code.Inference.robot_wrapper import policy_action_to_robot_action
+from important_code.inference.robot_wrapper import policy_action_to_robot_action
 
 logger = logging.getLogger(__name__)
 

@@ -1,0 +1,8 @@
+important_code/
+├── utils.py                 # 共享工具
+├── shared_control/          # 三种共享控制方案
+├── training/                # 微调脚本
+├── data_collection/         # 数据采集
+├── inference/               # RTC 推理流水线（原 Inference/）
+├── visualization/           # RViz 配置和工具（原 rviz_config/）
+└── diagnostics/             # 诊断工具（原 basic_check/）
