@@ -2,13 +2,14 @@
 RViz 运动测试脚本：向 rviz_node 发送正弦轨迹，验证可视化是否正常工作。
 
 使用方式：
-  1. 先启动: bash important_code/rviz_config/launch_viz.sh
-  2. 再运行: python important_code/rviz_config/test_rviz_motion.py
+  1. 先启动: bash important_code/visualization/launch_viz.sh
+  2. 再运行: python important_code/visualization/test_rviz_motion.py
 
 RViz 中应看到：
-  - 蓝色实体机器人（actual）：joint_0 正弦旋转
-  - 红色透明机器人（predicted）：joint_0 超前半个相位（模拟预测超前）
-两个机器人均可见说明可视化管线完全正常。
+  - 蓝色实体机器人          ：joint_0 正弦旋转（实际位置）
+  - 绿色球                  ：当前实际末端执行器位置
+  - 橙红色线段 + 小点       ：预测末端轨迹（未来50步，从当前 EE 向前延伸）
+三者均可见说明可视化管线完全正常。
 """
 
 import math
@@ -29,7 +30,7 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     print(f"[TEST] Sending sine trajectory to {_UDP_HOST}:{_UDP_PORT} ...")
-    print("[TEST] Blue robot (actual): joint_0 sine. Red ghost (predicted): leading by ~π/4.")
+    print("[TEST] Blue robot moves, green sphere=current EE, orange line=predicted 50-step EE trajectory.")
     print("[TEST] Press Ctrl+C to stop.")
 
     try:

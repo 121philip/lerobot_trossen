@@ -2,11 +2,11 @@
 # 启动 RViz 可视化：rviz_node + 两个 robot_state_publisher + RViz2
 #
 # 使用方式：
-#   终端1 (先启动): bash important_code/rviz_config/launch_viz.sh
+#   终端1 (先启动): bash important_code/visualization/launch_viz.sh
 #   终端2 (后启动): python important_code/Inference/run_inference_rtc.py --rviz [其他参数]
 #
 # RViz 中：
-#   蓝色实体机器人          = 实际执行位置（/actual/joint_states）
+#   蓝色实体机器人          = 实际执行位置（/actual/joint_states_VLA）
 #   绿色球 + 橙红色线 + 点  = 预测末端轨迹（/predicted_ee_marker）
 
 set -e
@@ -16,7 +16,7 @@ source /home/masterthesis/workspaces_ros2/kaixi_ws/install/setup.bash
 
 URDF="/home/masterthesis/workspaces_ros2/kaixi_ws/install/trossen_arm_description/share/trossen_arm_description/urdf/generated/wxai/wxai_follower.urdf"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RVIZ_NODE="$SCRIPT_DIR/../Inference/rviz_node.py"
+RVIZ_NODE="$SCRIPT_DIR/../inference/rviz_node.py"
 
 if [ ! -f "$URDF" ]; then
     echo "[ERROR] URDF not found: $URDF"
@@ -48,7 +48,7 @@ echo "[VIZ] Starting robot_state_publisher for actual robot (dark grey)..."
 ros2 run robot_state_publisher robot_state_publisher \
     --ros-args \
     -r __ns:=/actual \
-    -r joint_states:=/actual/joint_states \
+    -r joint_states:=/actual/joint_states_VLA \
     -p robot_description:="$URDF_ACTUAL" &
 PID_ACTUAL=$!
 

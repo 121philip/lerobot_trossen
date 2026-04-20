@@ -3,15 +3,15 @@
 ROS2 可视化节点 —— 必须用系统 Python 3.10 运行（含 rclpy）。
 
 由 launch_viz.sh 自动启动，也可手动运行：
-  /usr/bin/python3 important_code/Inference/rviz_node.py
+  /usr/bin/python3 important_code/inference/rviz_node.py
 
 监听 UDP 127.0.0.1:9788，接收来自主推理进程的关节数据，并发布：
-  /actual/joint_states    — 蓝色机器人模型用
-  /predicted_ee_marker    — 末端执行器预测轨迹线（红色线段 + 绿色当前点）
+  /actual/joint_states_VLA — 蓝色机器人模型用
+  /predicted_ee_marker    — 末端执行器预测轨迹线（橙色线段 + 绿色当前点）
 
 配合 launch_viz.sh 使用：
-  终端1: bash important_code/rviz_config/launch_viz.sh
-  终端2: python important_code/Inference/run_inference_rtc.py --rviz [其他参数]
+  终端1: bash important_code/visualization/launch_viz.sh
+  终端2: python important_code/inference/run_inference_rtc.py --rviz [其他参数]
 """
 
 import pickle
@@ -88,7 +88,7 @@ def main():
     rclpy.init()
     node = Node("trajectory_visualizer")
 
-    actual_pub  = node.create_publisher(JointState, "/actual/joint_states",  10)
+    actual_pub  = node.create_publisher(JointState, "/actual/joint_states_VLA",  10)
     marker_pub  = node.create_publisher(Marker,     "/predicted_ee_marker",  10)
 
     # 静态变换：将 predicted/base_link 挂载到 actual/base_link

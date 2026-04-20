@@ -199,6 +199,18 @@ class WidowXAIFollower(Robot):
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
+        # Safety pre-step: set joint_3 (forearm roll) to its staged angle first.
+        # Without this, the end effector orientation during inference can cause it
+        # to strike the table when the arm moves to the staged position.
+        current_positions = list(self.driver.get_all_positions())
+        prestep_positions = current_positions.copy()
+        prestep_positions[3] = self.config.staged_positions[3]  # π/5 rad (36°)
+        self.driver.set_all_positions(
+            trossen_arm.VectorDouble(prestep_positions),
+            goal_time=2.0,
+            blocking=True,
+        )
+
         # Move the arm to the staged positions before disconnecting
         self.driver.set_all_positions(
             self.config.staged_positions,

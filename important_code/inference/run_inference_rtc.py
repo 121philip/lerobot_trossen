@@ -44,44 +44,44 @@
 三（或四）线程架构：
   推理线程 → ActionQueue → 执行线程 → 机器人
   主线程负责计时监控和协调关闭
-  RViz 发布线程（--rviz 时启动）→ 可视化实际轨迹与预测轨迹
+  RViz 发布线程（--rviz 时启动）→ 可视化实际轨迹（蓝色机器人）与预测末端轨迹（橙红色线）
 
 Usage:
   # 干跑（无硬件，测试推理流程）：
-  python important_code/Inference/run_inference_rtc.py --dry-run
+  python important_code/inference/run_inference_rtc.py --dry-run
 
   # 标准模式，连接机器人：
-  python important_code/Inference/run_inference_rtc.py --robot-ip 192.168.2.3
+  python important_code/inference/run_inference_rtc.py --robot-ip 192.168.2.3
 
   # 开启 RTC（推荐，动作更平滑）：
-  python important_code/Inference/run_inference_rtc.py --rtc
+  python important_code/inference/run_inference_rtc.py --rtc
 
   # 指定训练输出目录：
-  python important_code/Inference/run_inference_rtc.py --train-dir outputs/train/my_run --rtc
+  python important_code/inference/run_inference_rtc.py --train-dir outputs/train/my_run --rtc
 
   # 调试模式：
-  python important_code/Inference/run_inference_rtc.py --dry-run --debug
+  python important_code/inference/run_inference_rtc.py --dry-run --debug
 
   # 开启 RViz 可视化（需要先在另一个终端运行 launch_viz.sh）：
-  python important_code/Inference/run_inference_rtc.py --rviz
-  python important_code/Inference/run_inference_rtc.py --dry-run --rviz   # 干跑验证
+  python important_code/inference/run_inference_rtc.py --rviz
+  python important_code/inference/run_inference_rtc.py --dry-run --rviz   # 干跑验证
 
 RViz 可视化使用步骤：
   1. 终端1（先启动）：
-       bash important_code/rviz_config/launch_viz.sh
-     该脚本会启动两个 robot_state_publisher 并打开 RViz2。
+       bash important_code/visualization/launch_viz.sh
+     该脚本会启动 rviz_node.py + robot_state_publisher 并打开 RViz2。
 
   2. 终端2（后启动）：
-       python important_code/Inference/run_inference_rtc.py --rviz [其他参数]
+       python important_code/inference/run_inference_rtc.py --rviz [其他参数]
 
   3. RViz 中可以看到：
-       蓝色实体机器人  = 实际执行的关节位置（/actual/joint_states）
-       红色透明机器人  = 模型预测的下一步目标位（/predicted/joint_states）
+       蓝色实体机器人        = 实际执行的关节位置（/actual/joint_states）
+       绿色球 + 橙红色线     = 末端执行器当前位置 + 未来50步预测轨迹（/predicted_ee_marker）
 
   4. 诊断方法：
-       预测(红)抖动、执行(蓝)也抖 → 模型预测本身不稳定，考虑调整 guidance_weight
-       预测(红)平滑、执行(蓝)抖动 → 执行层问题（max_relative_target 截断或硬件延迟）
-       两者位置长期有偏差         → 归一化参数或关节映射问题
+       橙线抖动、蓝机器人也抖 → 模型预测本身不稳定，考虑调整 guidance_weight
+       橙线平滑、蓝机器人抖动 → 执行层问题（max_relative_target 截断或硬件延迟）
+       橙线与蓝机器人末端长期偏差 → 归一化参数或关节映射问题
 """
 
 import argparse

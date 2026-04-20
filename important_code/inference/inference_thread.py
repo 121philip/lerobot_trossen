@@ -15,8 +15,7 @@ RTC 每次迭代步骤：
 
 RViz 集成（rviz_publisher 不为 None 时）：
   - 每次推理后（步骤 F），将反归一化后的完整动作块（shape=[50, 7]）推送给 RVizPublisher
-  - RVizPublisher 发布到 /predicted/joint_states（chunk 第一帧，显示为红色透明机器人）
-    和 /predicted_trajectory（完整50步，可用 rqt_plot 或自定义工具分析）
+  - RVizPublisher 通过 rviz_node.py 发布到 /predicted_ee_marker（50步末端轨迹，橙红色线）
   - 注意：推送的是后处理后的真实关节角（弧度/米），与实际执行单位一致，可直接比较
 """
 

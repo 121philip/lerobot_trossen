@@ -12,13 +12,12 @@ RViz 可视化发布器（UDP 发送端）。
   类型 1 (PREDICTED) = shape [N,7] 预测动作块（来自 inference_thread）
 
 发布的 ROS2 话题（由 rviz_node.py 发布）：
-  /actual/joint_states      → 深灰色实体机器人（实际执行位置）
-  /predicted/joint_states   → 红色透明机器人（预测目标位置，取 chunk 第一帧）
-  /predicted_trajectory     → 完整预测轨迹（trajectory_msgs/JointTrajectory）
+  /actual/joint_states    → 蓝色实体机器人（实际执行位置）
+  /predicted_ee_marker    → 绿色球（当前 EE 位置）+ 橙红色线（50步预测轨迹）
 
 使用方式（由 run_inference_rtc.py 通过 --rviz 标志自动创建）：
-  1. 先启动：bash important_code/rviz_config/launch_viz.sh  （启动 rviz_node.py + RViz）
-  2. 再启动：python run_inference_rtc.py --rviz             （自动创建此对象并发送数据）
+  1. 先启动：bash important_code/visualization/launch_viz.sh  （启动 rviz_node.py + RViz）
+  2. 再启动：python important_code/inference/run_inference_rtc.py --rviz
 """
 
 import pickle
