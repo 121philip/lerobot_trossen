@@ -16,7 +16,7 @@
 python important_code/run_train_clean.py \
   --policy.path=lerobot/smolvla_base \
   --policy.push_to_hub=true \
-  --policy.repo_id=kaixiyao/smolvla_widowx_grape_grasping_V3 \
+  --policy.repo_id=kaixiyao/smolvla_widowx_grape_grasping_V3_lora \
   \
   --policy.input_features='{
       "observation.state": {"type": "STATE", "shape": [7]},
@@ -28,8 +28,11 @@ python important_code/run_train_clean.py \
   }' \
   \
   --dataset.repo_id=kaixiyao/widowxai_grape_grasping_V3 \
-  --output_dir=outputs/train/smolvla_widowx_grape_grasping_V3 \
-  --job_name=smolvla_widowx_grape_grasping_V3 \
+  --output_dir=outputs/train/smolvla_widowx_grape_grasping_V3_lora \
+  --job_name=smolvla_widowx_grape_grasping_V3_lora \
+  \
+  --peft.method_type=LORA \
+  --peft.r=16 \
   \
   --batch_size=8 \
   --steps=30000 \

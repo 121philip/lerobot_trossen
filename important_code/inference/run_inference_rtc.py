@@ -62,21 +62,21 @@ Usage:
   # 调试模式：
   python important_code/inference/run_inference_rtc.py --dry-run --debug
 
-  # 开启 RViz 可视化（需要先在另一个终端运行 launch_viz.sh）：
+  # 开启 RViz 可视化（需要先在 crospi workspace 启动可视化节点）：
   python important_code/inference/run_inference_rtc.py --rviz
   python important_code/inference/run_inference_rtc.py --dry-run --rviz   # 干跑验证
 
 RViz 可视化使用步骤：
-  1. 终端1（先启动）：
-       bash important_code/visualization/launch_viz.sh
-     该脚本会启动 rviz_node.py + robot_state_publisher 并打开 RViz2。
+  1. 终端1（先启动，在 kaixi_crospi_ws）：
+       ros2 launch crospi_application_template trossen_follower_visualization.launch.py
+     该命令会启动 vla_ros_bridge_node.py + robot_state_publisher 并打开 RViz2。
 
   2. 终端2（后启动）：
        python important_code/inference/run_inference_rtc.py --rviz [其他参数]
 
   3. RViz 中可以看到：
-       蓝色实体机器人        = 实际执行的关节位置（/actual/joint_states）
-       绿色球 + 橙红色线     = 末端执行器当前位置 + 未来50步预测轨迹（/predicted_ee_marker）
+       蓝色实体机器人        = 真实混合轨迹（VLA + SpaceMouse，来自 /joint_states 反馈）
+       绿色球 + 橙红色线     = 末端执行器当前位置 + 未来 N 步预测轨迹（/predicted_ee_marker）
 
   4. 诊断方法：
        橙线抖动、蓝机器人也抖 → 模型预测本身不稳定，考虑调整 guidance_weight
@@ -85,8 +85,12 @@ RViz 可视化使用步骤：
 """
 
 import argparse
+import atexit
 import logging
+import select
 import sys
+import termios
+import tty
 import time
 from pathlib import Path
 from threading import Event, Thread
@@ -126,6 +130,44 @@ DEFAULT_CAM1_ID    = 10   # 手腕摄像头
 DEFAULT_CAM2_ID    = 2    # 右侧摄像头
 DEFAULT_TRAIN_DIR  = "outputs/train/smolvla_widowx_grape_grasping_V3"  # 替换为实际训练输出目录
 TASK_DESCRIPTION   = "Grab the grape"
+
+
+def _keyboard_listener(shutdown_event: Event, home_event: Event, kb_stop: Event) -> None:
+    """后台线程：监听 Q（冻结）和 R（回正）按键。
+
+    使用 cbreak 模式逐字符读取，Ctrl+C 仍会触发 SIGINT。
+    非 TTY 环境（如管道输入）下静默退出。
+    用 atexit 保证进程退出时终端设置一定被还原。
+    """
+    if not sys.stdin.isatty():
+        return
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    atexit.register(termios.tcsetattr, fd, termios.TCSADRAIN, old)
+    try:
+        tty.setcbreak(fd)
+        while not home_event.is_set() and not kb_stop.is_set():
+            ready, _, _ = select.select([sys.stdin], [], [], 0.2)
+            if not ready:
+                continue
+            ch = sys.stdin.read(1).lower()
+            if ch == 'q':
+                if not shutdown_event.is_set():
+                    shutdown_event.set()
+                    print(
+                        "\n\033[93m[KEY] Q → 推理已停止，机械臂就地保持。"
+                        "按 R 执行回正，再按 Ctrl+C 强制退出（不回正）。\033[0m",
+                        flush=True,
+                    )
+            elif ch == 'r':
+                home_event.set()
+                shutdown_event.set()
+                print("\n\033[92m[KEY] R → 正在执行回正...\033[0m", flush=True)
+                break
+    except Exception:
+        pass
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
 def parse_args():
@@ -276,7 +318,22 @@ def main():
     act_thread.start()
     logger.info("Threads started.")
 
-    # ── 5. 主线程：计时监控，到时或 Ctrl+C 后触发关闭 ───────────
+    # ── 5. 主线程：计时监控 + 键盘交互 ──────────────────────────
+    home_event = Event()
+    kb_stop = Event()
+    kb_thread = Thread(
+        target=_keyboard_listener,
+        args=(shutdown_event, home_event, kb_stop),
+        daemon=True, name="KeyboardThread",
+    )
+    kb_thread.start()
+
+    if sys.stdin.isatty():
+        print(
+            "\n\033[1m[控制] Q → 停止推理（就地冻结） | R → 执行回正 | Ctrl+C → 冻结\033[0m\n",
+            flush=True,
+        )
+
     start_time = time.time()
     last_logged_window = -1
     try:
@@ -284,22 +341,62 @@ def main():
             elapsed = time.time() - start_time
             if elapsed >= args.duration:
                 logger.info(f"Duration limit ({args.duration}s) reached.")
+                home_event.set()   # 时间到正常回正
                 break
             window = int(elapsed) // 10
             if window > 0 and window != last_logged_window:
                 logger.info(f"[MAIN] {elapsed:.0f}s elapsed, queue={action_queue.qsize()}")
                 last_logged_window = window
-            time.sleep(1.0)
+            time.sleep(0.5)
     except KeyboardInterrupt:
-        logger.info("Ctrl+C received, shutting down...")
+        logger.info("Ctrl+C → 推理停止，机械臂就地保持。")
 
     # ── 6. 清理 ──────────────────────────────────────────────────
     shutdown_event.set()
+    logger.info("正在等待推理/执行线程停止（最多 5s）...")
     inf_thread.join(timeout=5.0)
+    if inf_thread.is_alive():
+        logger.warning("推理线程未在超时内停止，继续清理。")
     act_thread.join(timeout=5.0)
+
+    # 终端不再需要捕获按键，先让键盘线程退出并还原终端
+    kb_stop.set()
+    kb_thread.join(timeout=1.0)
+
+    if not home_event.is_set():
+        # 冻结状态（Q 或 Ctrl+C）：等待用户按 R，或再按一次 Ctrl+C 强制退出
+        msg = (
+            "\n\033[93m推理已停止，机械臂就地保持。按 R 执行回正，或按 Ctrl+C 直接退出（不回正）。\033[0m\n"
+            if robot else
+            "\n\033[93m推理已停止（干跑模式）。按 R 继续退出。\033[0m\n"
+        )
+        print(msg, flush=True)
+        # 重启一个只监听 R 的键盘线程（终端已还原，可正常输入）
+        home_event.clear()
+        kb_stop2 = Event()
+        kb_thread2 = Thread(
+            target=_keyboard_listener,
+            args=(shutdown_event, home_event, kb_stop2),
+            daemon=True, name="KeyboardThread2",
+        )
+        kb_thread2.start()
+        try:
+            home_event.wait()
+        except KeyboardInterrupt:
+            logger.info("强制退出，跳过回正。")
+        finally:
+            kb_stop2.set()
+            kb_thread2.join(timeout=1.0)
+
     if robot:
-        robot.disconnect()
-        logger.info("Robot disconnected.")
+        if home_event.is_set():
+            robot.disconnect()
+            logger.info("Robot disconnected.")
+        else:
+            driver = getattr(robot, "driver", None)
+            if driver is not None:
+                driver.cleanup()
+            logger.info("Robot driver cleaned up (no homing).")
 
     # ── 7. 调试数据输出（仅 --debug 模式）───────────────────────
     rtc_processor = getattr(policy, "rtc_processor", None)

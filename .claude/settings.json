@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(/usr/bin/python3 -c ' *)",
-      "Bash(grep -E \"\\\\.\\(py|yaml\\)$\")"
+      "Bash(grep -E \"\\\\.\\(py|yaml\\)$\")",
+      "Bash(grep -E \"\\\\.\\(pyi|so|py\\)$\")",
+      "Bash(curl -s \"https://api.github.com/repos/ComposioHQ/awesome-claude-skills/contents/\")",
+      "Bash(curl -s \"https://api.github.com/repos/ComposioHQ/awesome-claude-skills/contents/README.md\")",
+      "Bash(claude plugin *)",
+      "Bash(curl -s \"https://api.github.com/repos/ComposioHQ/awesome-claude-skills/contents/connect-apps-plugin\")",
+      "Bash(curl -s \"https://api.github.com/repos/ComposioHQ/awesome-claude-skills/contents/connect-apps-plugin/.claude-plugin\")",
+      "Bash(curl -s \"https://api.github.com/repos/ComposioHQ/awesome-claude-skills/contents/connect-apps-plugin/.claude-plugin/plugin.json\")",
+      "Bash(curl -s \"https://api.github.com/repos/ComposioHQ/awesome-claude-skills/contents/changelog-generator\")",
+      "Bash(curl -s \"https://api.github.com/repos/ComposioHQ/awesome-claude-skills/contents/changelog-generator/SKILL.md\")"
     ]
   }
 }
