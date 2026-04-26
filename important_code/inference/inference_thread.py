@@ -34,6 +34,10 @@ from lerobot.policies.rtc.latency_tracker import LatencyTracker
 
 from important_code.utils import DEVICE, JOINT_NAMES
 from important_code.inference.robot_wrapper import create_mock_observation, robot_obs_to_policy_obs
+from important_code.shared_control.confidence import (
+    CBCConfidenceEstimator,
+    compute_alpha,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +72,17 @@ def inference_thread_fn(
 
         latency_tracker = LatencyTracker()   # 维护历史推理延迟的滑动窗口
         time_per_step = 1.0 / args.fps       # 每帧时间（秒）
+        confidence_method = getattr(args, "confidence_method", "regression_cbc")
+        alpha_mode = getattr(args, "alpha_mode", "constant")
+        alpha_const = float(getattr(args, "alpha_const", 0.5))
+        alpha_tau_c = float(getattr(args, "alpha_tau_c", 0.4))
+        alpha_k_c = float(getattr(args, "alpha_k_c", 8.0))
+        confidence_estimator = CBCConfidenceEstimator(
+            d=5,
+            gamma=1.0,
+            fps=args.fps,
+            confidence_method=confidence_method,
+        )
 
         # RTC 模式：队列低于阈值时提前触发推理，保持队列充足
         # 非 RTC 模式：队列完全耗尽才触发（传统块执行方式）
@@ -77,13 +92,20 @@ def inference_thread_fn(
             "[HEALTH] RTC enabled: %s | effective queue_threshold=%s | fps=%s",
             bool(args.rtc), queue_threshold, args.fps,
         )
+        logger.info(
+            "[HEALTH] C_VLA method=%s | alpha_mode=%s | alpha_const=%.3f | tau_c=%.3f | k_c=%.3f",
+            confidence_method,
+            alpha_mode,
+            alpha_const,
+            alpha_tau_c,
+            alpha_k_c,
+        )
         if args.rtc:
             logger.warning("[HEALTH] RTC is enabled; first-pass grape diagnosis expects --rtc disabled.")
         else:
             logger.info("[HEALTH] RTC confirmed disabled; using synchronous/non-RTC queue refill.")
 
         logged_observation_health = False
-        last_chunk_tail = None
         empty_since = None
 
         while not shutdown_event.is_set():
@@ -143,25 +165,18 @@ def inference_thread_fn(
                 # merge 需要归一化空间的原始动作来计算引导梯度
                 original_actions = actions.squeeze(0).clone()
                 postprocessed_actions = postprocessor(actions).squeeze(0)
-                chunk_len = int(postprocessed_actions.shape[0])
-                vel_max = 0.0
-                accel_max = 0.0
-                jerk_max = 0.0
-                if chunk_len > 1:
-                    vel = torch.diff(postprocessed_actions, n=1, dim=0) * args.fps
-                    vel_max = float(torch.max(torch.abs(vel)).detach().cpu().item())
-                if chunk_len > 2:
-                    accel = torch.diff(postprocessed_actions, n=2, dim=0) * (args.fps ** 2)
-                    accel_max = float(torch.max(torch.abs(accel)).detach().cpu().item())
-                if chunk_len > 3:
-                    jerk = torch.diff(postprocessed_actions, n=3, dim=0) * (args.fps ** 3)
-                    jerk_max = float(torch.max(torch.abs(jerk)).detach().cpu().item())
-                boundary_jump_max = 0.0
-                if last_chunk_tail is not None and chunk_len:
-                    boundary = postprocessed_actions[0].detach().cpu() - last_chunk_tail
-                    boundary_jump_max = float(torch.max(torch.abs(boundary)).item())
-                if chunk_len:
-                    last_chunk_tail = postprocessed_actions[-1].detach().cpu()
+                confidence_metrics = confidence_estimator.update(postprocessed_actions)
+                alpha = compute_alpha(
+                    confidence_metrics.c_cbc,
+                    alpha_mode=alpha_mode,
+                    alpha_const=alpha_const,
+                    tau_c=alpha_tau_c,
+                    k_c=alpha_k_c,
+                )
+                vel_max = confidence_metrics.vel_max
+                accel_max = confidence_metrics.accel_max
+                jerk_max = confidence_metrics.jerk_max
+                boundary_jump_max = confidence_metrics.boundary_jump_max
 
                 new_latency = time.perf_counter() - current_time
                 new_delay = math.ceil(new_latency / time_per_step)
@@ -177,6 +192,8 @@ def inference_thread_fn(
 
                 if rviz_publisher is not None:
                     rviz_publisher.put_predicted(postprocessed_actions.cpu().numpy())
+                    if hasattr(rviz_publisher, "put_alpha"):
+                        rviz_publisher.put_alpha(alpha)
 
                 # ── G. 融合新块进动作队列（RTC 核心操作）──
                 # merge 在 execution_horizon 步的过渡区内以 guidance_weight 强度
@@ -193,12 +210,28 @@ def inference_thread_fn(
                 logger.info(
                     "[INFERENCE] Chunk in %.3fs "
                     "(delay=%s, queue_before=%s, queue_after=%s, idle_gap_ms=%.1f, "
+                    "alpha=%.4f, alpha_mode=%s, confidence_method=%s, "
+                    "c_vla=%.4f, c_raw=%.4f, c_speed_norm=%.4f, c_regression=%.4f, "
+                    "cbc_raw_mse=%.6f, cbc_reg_residual=%.6f, "
+                    "a_vi=%.6f, a_ai=%.6f, jerk=%.6f, "
                     "vel_max=%.4f, accel_max=%.4f, jerk_max=%.4f, boundary_jump_max=%.4f)",
                     new_latency,
                     new_delay,
                     queue_size_before,
                     action_queue.qsize(),
                     idle_gap_ms,
+                    alpha,
+                    alpha_mode,
+                    confidence_method,
+                    confidence_metrics.c_cbc,
+                    confidence_metrics.c_raw,
+                    confidence_metrics.c_speed_norm,
+                    confidence_metrics.c_regression,
+                    confidence_metrics.cbc_raw_mse,
+                    confidence_metrics.cbc_reg_residual,
+                    confidence_metrics.a_vi,
+                    confidence_metrics.a_ai,
+                    confidence_metrics.jerk,
                     vel_max,
                     accel_max,
                     jerk_max,

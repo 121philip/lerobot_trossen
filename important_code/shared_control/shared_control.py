@@ -1,4 +1,9 @@
 """
+DEPRECATED (2026-04-26):
+Leader/follower impedance shared-control prototype. It is not part of the
+current SmolVLA + CroSPI integration path, where VLA inference computes alpha
+and CroSPI consumes only the final alpha scalar.
+
 Shared Control — Layer 2 Mode Arbitration (Impedance-Based)
 =============================================================
 

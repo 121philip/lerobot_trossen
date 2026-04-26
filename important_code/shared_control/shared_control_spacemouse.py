@@ -1,4 +1,9 @@
 """
+DEPRECATED (2026-04-26):
+Prototype SpaceMouse authority-gate implementation. The current CroSPI
+integration does not use alpha_sm or button-driven alpha overrides; alpha is
+computed in VLA inference and sent to CroSPI as a final scalar.
+
 Shared Control (SpaceMouse Edition) — α computation + button arbitration
 =========================================================================
 
@@ -56,12 +61,18 @@ import time
 import numpy as np
 from typing import Optional
 
+try:
+    from important_code.shared_control.confidence import smoothstep
+except ModuleNotFoundError:
+    from confidence import smoothstep
+
 
 # =============================================================================
 # Constants
 # =============================================================================
 
 DEFAULT_V_THRESHOLD = 0.02   # ||v_sm|| below this → SpaceMouse idle; calibrate on HW
+DEFAULT_V_FULL      = 0.12   # ||v_sm|| where SpaceMouse requests full authority
 DEFAULT_TAU_C       = 0.4    # sigmoid centre for α(C_VLA)
 DEFAULT_K_C         = 8.0    # sigmoid steepness
 LONG_PRESS_S        = 0.6    # seconds to distinguish long-press from short-press
@@ -196,7 +207,10 @@ class AlphaController:
     """
     Computes blending factor α ∈ [0, 1] (human authority).
 
-    Default: α = 1 - σ(k_c · (C_VLA - τ_c))   — driven continuously by C_VLA.
+    Default:
+        α_cvla  = 1 - σ(k_c · (C_VLA - τ_c))
+        α_sm    = smoothstep((||v_sm|| - v_dead) / (v_full - v_dead))
+        α_final = max(α_cvla, α_sm)
 
     Button overrides (sticky until next button event):
         Btn_R long  →  α_lock = 0.0  (VLA limit; α stays 0 until Btn_L long)
@@ -204,8 +218,7 @@ class AlphaController:
             if α_lock == 1.0  →  α_lock = None  (release back to C_VLA)
             otherwise         →  α_lock = 1.0   (Human limit)
 
-    The dead zone in eTaSL zeroes human contribution when ||v_sm|| < threshold,
-    so α can be non-zero even when SpaceMouse is idle — no extra logic needed here.
+    Button locks have priority over both continuous signals.
 
     Parameters
     ----------
@@ -215,12 +228,29 @@ class AlphaController:
         Sigmoid centre (C_VLA value where α = 0.5).
     """
 
-    def __init__(self, k_c: float = DEFAULT_K_C, tau_c: float = DEFAULT_TAU_C):
+    def __init__(
+        self,
+        k_c: float = DEFAULT_K_C,
+        tau_c: float = DEFAULT_TAU_C,
+        v_dead: float = DEFAULT_V_THRESHOLD,
+        v_full: float = DEFAULT_V_FULL,
+    ):
         self.k_c   = k_c
         self.tau_c = tau_c
+        self.v_dead = v_dead
+        self.v_full = v_full
         self._alpha_lock: Optional[float] = None  # None = C_VLA-driven
+        self.last_alpha_cvla = 0.0
+        self.last_alpha_sm = 0.0
+        self.last_alpha_final = 0.0
 
-    def update(self, C_VLA: float, override_long: bool, resume_long: bool) -> float:
+    def update(
+        self,
+        C_VLA: float,
+        v_norm: float,
+        override_long: bool,
+        resume_long: bool,
+    ) -> float:
         """
         Advance one cycle and return current α.
 
@@ -228,6 +258,8 @@ class AlphaController:
         ----------
         C_VLA : float
             VLA confidence ∈ [0, 1].
+        v_norm : float
+            Smoothed SpaceMouse 6-DOF velocity norm.
         override_long : bool
             Btn_L long-press fired this cycle.
         resume_long : bool
@@ -238,13 +270,19 @@ class AlphaController:
         elif override_long:
             self._alpha_lock = None if self._alpha_lock == 1.0 else 1.0   # toggle Human
 
-        if self._alpha_lock is not None:
-            return float(self._alpha_lock)
-
-        # Continuous α from C_VLA
         C = float(np.clip(C_VLA, 0.0, 1.0))
-        alpha = 1.0 - 1.0 / (1.0 + np.exp(-self.k_c * (C - self.tau_c)))
-        return float(np.clip(alpha, 0.0, 1.0))
+        alpha_cvla = 1.0 - 1.0 / (1.0 + np.exp(-self.k_c * (C - self.tau_c)))
+
+        denom = max(self.v_full - self.v_dead, 1e-9)
+        alpha_sm = smoothstep((float(v_norm) - self.v_dead) / denom)
+        alpha_final = max(alpha_cvla, alpha_sm)
+
+        self.last_alpha_cvla = float(np.clip(alpha_cvla, 0.0, 1.0))
+        self.last_alpha_sm = float(np.clip(alpha_sm, 0.0, 1.0))
+        if self._alpha_lock is not None:
+            alpha_final = float(self._alpha_lock)
+        self.last_alpha_final = float(np.clip(alpha_final, 0.0, 1.0))
+        return self.last_alpha_final
 
     @property
     def is_locked(self) -> bool:
@@ -258,6 +296,9 @@ class AlphaController:
 
     def reset(self):
         self._alpha_lock = None
+        self.last_alpha_cvla = 0.0
+        self.last_alpha_sm = 0.0
+        self.last_alpha_final = 0.0
 
 
 # =============================================================================
@@ -300,13 +341,19 @@ class SharedControlNode:
     def __init__(
         self,
         v_threshold: float = DEFAULT_V_THRESHOLD,
+        v_full: float = DEFAULT_V_FULL,
         k_c: float = DEFAULT_K_C,
         tau_c: float = DEFAULT_TAU_C,
         long_press_s: float = LONG_PRESS_S,
     ):
         self.arbiter    = SpaceMouseArbiter(v_threshold=v_threshold,
                                             long_press_s=long_press_s)
-        self.alpha_ctrl = AlphaController(k_c=k_c, tau_c=tau_c)
+        self.alpha_ctrl = AlphaController(
+            k_c=k_c,
+            tau_c=tau_c,
+            v_dead=v_threshold,
+            v_full=v_full,
+        )
 
     def step(
         self,
@@ -317,11 +364,19 @@ class SharedControlNode:
     ) -> "SharedControlOutput":
         """Execute one control cycle."""
         arb   = self.arbiter.update(v_sm, btn_l, btn_r)
-        alpha = self.alpha_ctrl.update(C_VLA, arb.override_long, arb.resume_long)
+        alpha = self.alpha_ctrl.update(
+            C_VLA,
+            arb.v_norm,
+            arb.override_long,
+            arb.resume_long,
+        )
 
         return SharedControlOutput(
             v_sm=np.asarray(v_sm, dtype=np.float64),
             alpha=alpha,
+            alpha_cvla=self.alpha_ctrl.last_alpha_cvla,
+            alpha_sm=self.alpha_ctrl.last_alpha_sm,
+            v_norm=arb.v_norm,
             gripper_close=arb.gripper_close,
             gripper_open=arb.gripper_open,
             alpha_locked=self.alpha_ctrl.is_locked,
@@ -336,13 +391,16 @@ class SharedControlNode:
 
 class SharedControlOutput:
     """Output of one SharedControlNode.step() call."""
-    __slots__ = ('v_sm', 'alpha', 'gripper_close', 'gripper_open',
-                 'alpha_locked', 'lock_value')
+    __slots__ = ('v_sm', 'alpha', 'alpha_cvla', 'alpha_sm', 'v_norm',
+                 'gripper_close', 'gripper_open', 'alpha_locked', 'lock_value')
 
-    def __init__(self, v_sm, alpha, gripper_close, gripper_open,
-                 alpha_locked, lock_value):
+    def __init__(self, v_sm, alpha, alpha_cvla, alpha_sm, v_norm,
+                 gripper_close, gripper_open, alpha_locked, lock_value):
         self.v_sm         = v_sm
         self.alpha        = alpha
+        self.alpha_cvla   = alpha_cvla
+        self.alpha_sm     = alpha_sm
+        self.v_norm       = v_norm
         self.gripper_close = gripper_close
         self.gripper_open  = gripper_open
         self.alpha_locked  = alpha_locked
@@ -350,7 +408,10 @@ class SharedControlOutput:
 
     def __repr__(self):
         lock_str = f"lock={self.lock_value:.1f}" if self.alpha_locked else "C_VLA-driven"
-        return f"SharedControlOutput(α={self.alpha:.3f}, {lock_str})"
+        return (
+            f"SharedControlOutput(α={self.alpha:.3f}, α_cvla={self.alpha_cvla:.3f}, "
+            f"α_sm={self.alpha_sm:.3f}, v_norm={self.v_norm:.3f}, {lock_str})"
+        )
 
 
 # =============================================================================
@@ -368,8 +429,13 @@ if __name__ == "__main__":
 
     print("\n--- Phase 1: C_VLA-driven α (high confidence → VLA leads) ---")
     for cvla in [0.9, 0.6, 0.4, 0.1]:
-        out = node.step(v_active, False, False, C_VLA=cvla)
+        out = node.step(v_idle, False, False, C_VLA=cvla)
         print(f"  C_VLA={cvla:.1f}  →  {out}")
+
+    print("\n--- Phase 1b: SpaceMouse authority gate (input raises α) ---")
+    active_node = SharedControlNode()
+    out = active_node.step(v_active, False, False, C_VLA=0.9)
+    print(f"  C_VLA=0.9 with SpaceMouse active  →  {out}")
 
     print("\n--- Phase 2: Btn_L long-press → Human limit (α = 1) ---")
     t0 = time.monotonic()

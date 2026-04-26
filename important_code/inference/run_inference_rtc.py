@@ -196,6 +196,20 @@ def parse_args():
     parser.add_argument("--duration", type=float, default=120.0,
                         help="最大运行时长（秒，默认: 120）")  # --duration 控制整个推理程序的最长运行时间，单位是秒（默认 120 秒 = 2 分钟）。
 
+    # VLA confidence / shared-control alpha
+    parser.add_argument("--confidence-method", type=str, default="regression_cbc",
+                        choices=["raw_cbc", "speed_norm_cbc", "regression_cbc"],
+                        help="C_VLA method used as the primary confidence signal")
+    parser.add_argument("--alpha-mode", type=str, default="constant",
+                        choices=["constant", "confidence"],
+                        help="Alpha source: fixed alpha_const or confidence-derived alpha")
+    parser.add_argument("--alpha-const", type=float, default=0.5,
+                        help="Fixed alpha used when --alpha-mode=constant")
+    parser.add_argument("--alpha-tau-c", type=float, default=0.4,
+                        help="Confidence threshold tau_c for alpha-mode=confidence")
+    parser.add_argument("--alpha-k-c", type=float, default=8.0,
+                        help="Sigmoid gain k_c for alpha-mode=confidence")
+
     # RTC 开关（默认关闭，传 --rtc 则开启）
     parser.add_argument("--rtc", action="store_true", default=False,
                         help="开启 RTC（Real-Time Chunking）动作融合，动作更平滑")
