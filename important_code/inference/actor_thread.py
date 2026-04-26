@@ -47,6 +47,9 @@ def actor_thread_fn(
         logger.info("[ACTOR] Starting actor thread")
 
         action_count = 0
+        empty_count = 0
+        empty_since = None
+        last_empty_log = 0.0
         action_interval = 1.0 / args.fps   # 目标帧间隔，例如 1/30 ≈ 0.0333s
 
         while not shutdown_event.is_set():
@@ -56,6 +59,14 @@ def actor_thread_fn(
             action = action_queue.get()
 
             if action is not None:
+                if empty_since is not None:
+                    logger.info(
+                        "[HEALTH] Action queue recovered after %.1f ms and %s empty reads",
+                        (time.perf_counter() - empty_since) * 1000.0,
+                        empty_count,
+                    )
+                    empty_since = None
+                    empty_count = 0
                 action_dict = policy_action_to_robot_action(action)
 
                 if robot_wrapper is not None:
@@ -69,6 +80,18 @@ def actor_thread_fn(
                     rviz_publisher.put_actual(action.cpu().numpy())
 
                 action_count += 1
+            else:
+                empty_count += 1
+                now = time.perf_counter()
+                if empty_since is None:
+                    empty_since = now
+                if now - last_empty_log >= 1.0:
+                    logger.warning(
+                        "[HEALTH] Action queue empty; actor is holding for %.1f ms (empty_reads=%s)",
+                        (now - empty_since) * 1000.0,
+                        empty_count,
+                    )
+                    last_empty_log = now
 
             # 精确限速：补足到目标帧间隔（-1ms 补偿系统调度延迟）
             elapsed = time.perf_counter() - start_time

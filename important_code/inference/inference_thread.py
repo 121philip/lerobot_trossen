@@ -72,10 +72,26 @@ def inference_thread_fn(
         # RTC 模式：队列低于阈值时提前触发推理，保持队列充足
         # 非 RTC 模式：队列完全耗尽才触发（传统块执行方式）
         queue_threshold = args.queue_threshold if args.rtc else 0
+        logger.info("[HEALTH] Task string: %r", args.task)
+        logger.info(
+            "[HEALTH] RTC enabled: %s | effective queue_threshold=%s | fps=%s",
+            bool(args.rtc), queue_threshold, args.fps,
+        )
+        if args.rtc:
+            logger.warning("[HEALTH] RTC is enabled; first-pass grape diagnosis expects --rtc disabled.")
+        else:
+            logger.info("[HEALTH] RTC confirmed disabled; using synchronous/non-RTC queue refill.")
+
+        logged_observation_health = False
+        last_chunk_tail = None
+        empty_since = None
 
         while not shutdown_event.is_set():
             if action_queue.qsize() <= queue_threshold:
+                queue_size_before = action_queue.qsize()
                 current_time = time.perf_counter()
+                if queue_size_before == 0 and empty_since is None:
+                    empty_since = current_time
 
                 # ── A. 快照推理前的队列状态（供 merge 对齐时序用）──
                 action_index_before = action_queue.get_action_index()
@@ -105,6 +121,11 @@ def inference_thread_fn(
                     )
                     # 预处理器：摄像头 key 重命名、任务文本 tokenize、状态归一化
                     obs_processed = preprocessor(obs_tensors)
+                    if not logged_observation_health:
+                        logger.info("[HEALTH] Raw observation keys: %s", sorted(observation.keys()))
+                        logger.info("[HEALTH] Prepared observation keys: %s", sorted(obs_tensors.keys()))
+                        logger.info("[HEALTH] Preprocessor output keys: %s", sorted(obs_processed.keys()))
+                        logged_observation_health = True
 
                 # ── E. 预测动作块（必须在 no_grad 上下文外）──
                 # RTC 引导（consistency guidance）需要 autograd 计算梯度修正。
@@ -122,6 +143,25 @@ def inference_thread_fn(
                 # merge 需要归一化空间的原始动作来计算引导梯度
                 original_actions = actions.squeeze(0).clone()
                 postprocessed_actions = postprocessor(actions).squeeze(0)
+                chunk_len = int(postprocessed_actions.shape[0])
+                vel_max = 0.0
+                accel_max = 0.0
+                jerk_max = 0.0
+                if chunk_len > 1:
+                    vel = torch.diff(postprocessed_actions, n=1, dim=0) * args.fps
+                    vel_max = float(torch.max(torch.abs(vel)).detach().cpu().item())
+                if chunk_len > 2:
+                    accel = torch.diff(postprocessed_actions, n=2, dim=0) * (args.fps ** 2)
+                    accel_max = float(torch.max(torch.abs(accel)).detach().cpu().item())
+                if chunk_len > 3:
+                    jerk = torch.diff(postprocessed_actions, n=3, dim=0) * (args.fps ** 3)
+                    jerk_max = float(torch.max(torch.abs(jerk)).detach().cpu().item())
+                boundary_jump_max = 0.0
+                if last_chunk_tail is not None and chunk_len:
+                    boundary = postprocessed_actions[0].detach().cpu() - last_chunk_tail
+                    boundary_jump_max = float(torch.max(torch.abs(boundary)).item())
+                if chunk_len:
+                    last_chunk_tail = postprocessed_actions[-1].detach().cpu()
 
                 new_latency = time.perf_counter() - current_time
                 new_delay = math.ceil(new_latency / time_per_step)
@@ -145,10 +185,24 @@ def inference_thread_fn(
                     original_actions, postprocessed_actions,
                     new_delay, action_index_before,
                 )
+                idle_gap_ms = 0.0
+                if empty_since is not None:
+                    idle_gap_ms = (time.perf_counter() - empty_since) * 1000.0
+                    empty_since = None
 
                 logger.info(
-                    f"[INFERENCE] Chunk in {new_latency:.3f}s "
-                    f"(delay={new_delay}, queue={action_queue.qsize()})"
+                    "[INFERENCE] Chunk in %.3fs "
+                    "(delay=%s, queue_before=%s, queue_after=%s, idle_gap_ms=%.1f, "
+                    "vel_max=%.4f, accel_max=%.4f, jerk_max=%.4f, boundary_jump_max=%.4f)",
+                    new_latency,
+                    new_delay,
+                    queue_size_before,
+                    action_queue.qsize(),
+                    idle_gap_ms,
+                    vel_max,
+                    accel_max,
+                    jerk_max,
+                    boundary_jump_max,
                 )
             else:
                 # 队列充足，短暂休眠避免 busy-waiting 浪费 CPU

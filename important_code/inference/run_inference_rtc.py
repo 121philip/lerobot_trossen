@@ -249,6 +249,13 @@ def main():
     policy.config.rtc_config = rtc_config
     policy.init_rtc_processor()
     policy.to(DEVICE).eval()
+    logger.info(
+        "[HEALTH] Policy config: chunk_size=%s | n_action_steps=%s | input_features=%s | output_features=%s",
+        getattr(policy.config, "chunk_size", None),
+        getattr(policy.config, "n_action_steps", None),
+        getattr(policy.config, "input_features", None),
+        getattr(policy.config, "output_features", None),
+    )
 
     # ── 2. 加载预处理器 & 后处理器 ──────────────────────────────
     device_overrides = {"device_processor": {"device": str(DEVICE)}}
@@ -259,6 +266,12 @@ def main():
         postprocessor_overrides=device_overrides,
     )
     logger.info("Processors loaded.")
+    logger.info("[HEALTH] Task string: %r", args.task)
+    logger.info("[HEALTH] RTC enabled: %s | queue_threshold=%s | fps=%s", bool(args.rtc), args.queue_threshold, args.fps)
+    if args.rtc:
+        logger.warning("[HEALTH] RTC is enabled; first-pass grape diagnosis should use the default non-RTC mode.")
+    else:
+        logger.info("[HEALTH] RTC confirmed disabled for the live inference path.")
 
     # ── 3. 连接机器人（干跑模式跳过）────────────────────────────
     robot = None
