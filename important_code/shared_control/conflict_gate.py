@@ -1,4 +1,9 @@
 """
+DEPRECATED (2026-04-26):
+Legacy conflict-gate prototype. The current runtime does not use conflict
+gating; it computes C_VLA/alpha in VLA inference and sends final alpha to
+CroSPI.
+
 Conflict Gate — Layer 2 Confidence Arbitration
 ===============================================
 
