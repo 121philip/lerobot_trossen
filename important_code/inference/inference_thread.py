@@ -132,10 +132,21 @@ def inference_thread_fn(
                 else:
                     raw_obs = create_mock_observation()   # 干跑：全零假数据
 
+                # CroSPI 模式：用 bridge 转发的 /joint_states 覆盖 SDK/mock 关节值，
+                # 确保 VLA 观测的关节状态来自 eTaSL（单一事实来源）。
+                # 若 bridge 尚未发送数据（启动初期 < 1s），保留 SDK/mock 值，不影响推理。
+                if rviz_publisher is not None:
+                    bridge_joints = rviz_publisher.get_latest_joints()
+                    if bridge_joints is not None:
+                        print("Feedback: ", bridge_joints)
+                        for i, name in enumerate(JOINT_NAMES):
+                            raw_obs[f"{name}.pos"] = float(bridge_joints[i])
+
                 # ── D. 预处理观测（在 no_grad 下进行）──
                 # 注意：必须用 no_grad() 而不是 inference_mode()！
                 # RTC 的 denoise_step 内部调用 enable_grad() + autograd.grad() 进行梯度引导，
                 # inference_mode 会完全禁用 autograd 且无法被 enable_grad() 覆盖。
+                # print(raw_obs)
                 observation = robot_obs_to_policy_obs(raw_obs)
                 with torch.no_grad():
                     obs_tensors = prepare_observation_for_inference(
@@ -160,11 +171,15 @@ def inference_thread_fn(
                 # 例如: torch.Size([1, 50, 7]) → [批次=1, 未来50步, 7个关节]
                 logger.debug("Raw chunk shape: %s", actions.shape)
                 logger.debug("Future base joint trajectory: %s", actions[0, :, 0].cpu().numpy())
+                print("Future base joint trajectory: %s", actions[0, :, 0].cpu().numpy())
 
                 # ── F. 保存原始动作 + 后处理 + 记录延迟 ──
                 # merge 需要归一化空间的原始动作来计算引导梯度
                 original_actions = actions.squeeze(0).clone()
                 postprocessed_actions = postprocessor(actions).squeeze(0)
+                # print(postprocessed_actions.shape)
+                print("POST Future base joint trajectory: %s", postprocessed_actions[:, 0].cpu().numpy())
+
                 confidence_metrics = confidence_estimator.update(postprocessed_actions)
                 alpha = compute_alpha(
                     confidence_metrics.c_cbc,

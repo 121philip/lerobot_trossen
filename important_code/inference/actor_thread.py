@@ -77,6 +77,7 @@ def actor_thread_fn(
                         logger.info(f"[DRY-RUN] Step {action_count}: {action_dict}")
 
                 if rviz_publisher is not None:
+                    # print("Action :", action.cpu().numpy())
                     rviz_publisher.put_actual(action.cpu().numpy())
 
                 action_count += 1
