@@ -1,5 +1,6 @@
 from lerobot.scripts.lerobot_teleoperate import teleop_loop
 import rerun as rr
+from pathlib import Path
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.processor import make_default_processors
 from lerobot.robots import make_robot_from_config
@@ -18,8 +19,8 @@ robot_cfg = WidowXAIFollowerConfig(
     ip_address="192.168.2.3",
     id="follower",
     cameras={
-        "right":      OpenCVCameraConfig(index_or_path=2,  width=640, height=480, fps=30),
-        "wrist":       OpenCVCameraConfig(index_or_path=10, width=640, height=480, fps=30),
+        "right":      OpenCVCameraConfig(index_or_path=Path("/dev/video4"),  width=640, height=480, fps=30, warmup_s=3),
+        "wrist":       OpenCVCameraConfig(index_or_path=Path("/dev/video10"),  width=640, height=480, fps=30, warmup_s=3),
     },
 )
 

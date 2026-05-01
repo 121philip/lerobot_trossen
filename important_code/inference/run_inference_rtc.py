@@ -123,7 +123,7 @@ logger = logging.getLogger(__name__)
 # === 默认配置 ===
 DEFAULT_ROBOT_IP   = "192.168.2.3"
 DEFAULT_CAM1_ID    = 10   # 手腕摄像头
-DEFAULT_CAM2_ID    = 2    # 右侧摄像头
+DEFAULT_CAM2_ID    = 4    # 右侧摄像头
 DEFAULT_TRAIN_DIR  = "outputs/train/smolvla_widowx_grape_grasping_V3"  # 替换为实际训练输出目录
 TASK_DESCRIPTION   = "Grab the grape"
 
@@ -138,7 +138,7 @@ def parse_args():
     parser.add_argument("--cam1",      type=int, default=DEFAULT_CAM1_ID,
                         help="手腕摄像头索引 (默认: 10)")
     parser.add_argument("--cam2",      type=int, default=DEFAULT_CAM2_ID,
-                        help="右侧摄像头索引 (默认: 2)")
+                        help="右侧摄像头索引 (默认: 4)")
     parser.add_argument("--dry-run",   action="store_true",
                         help="干跑模式，无需真实机器人硬件")
     parser.add_argument("--crospi",    action="store_true",
@@ -258,8 +258,8 @@ def main():
                 robot_config = CroSPIFollowerConfig(
                     ip_address=args.robot_ip,
                     cameras={
-                        "wrist": OpenCVCameraConfig(args.cam1, fps=args.fps, width=640, height=480),
-                        "right": OpenCVCameraConfig(args.cam2, fps=args.fps, width=640, height=480),
+                        "wrist": OpenCVCameraConfig(args.cam1, fps=args.fps, width=640, height=480, fourcc="YUYV"),
+                        "right": OpenCVCameraConfig(args.cam2, fps=args.fps, width=640, height=480, fourcc="YUYV"),
                     },
                 )
                 logger.info("CroSPI mode: observations via Trossen SDK, send_action is no-op.")
@@ -268,8 +268,8 @@ def main():
                 robot_config = WidowXAIFollowerConfig(
                     ip_address=args.robot_ip,
                     cameras={
-                        "wrist": OpenCVCameraConfig(args.cam1, fps=args.fps, width=640, height=480),
-                        "right": OpenCVCameraConfig(args.cam2, fps=args.fps, width=640, height=480),
+                        "wrist": OpenCVCameraConfig(args.cam1, fps=args.fps, width=640, height=480, fourcc="YUYV"),
+                        "right": OpenCVCameraConfig(args.cam2, fps=args.fps, width=640, height=480, fourcc="YUYV"),
                     },
                     max_relative_target=5.0,   # 单步最大位移限制（安全保护）
                 )

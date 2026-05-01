@@ -1,5 +1,6 @@
 from lerobot.scripts.lerobot_record import record
 import sys
+from pathlib import Path
 
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.utils.import_utils import register_third_party_plugins as register_third_party_devices
@@ -23,8 +24,8 @@ robot_cfg = WidowXAIFollowerConfig(
         # width/height:  capture resolution in pixels
         # fps:           target capture frame rate (should match the top-level FPS)
         
-        "wrist":      OpenCVCameraConfig(index_or_path=10, width=640, height=480, fps=30),
-        "right":       OpenCVCameraConfig(index_or_path=2,  width=640, height=480, fps=30),
+        "wrist":      OpenCVCameraConfig(index_or_path=Path("/dev/video10"), width=640, height=480, fps=30, fourcc="YUYV"),
+        "right":       OpenCVCameraConfig(index_or_path=Path("/dev/video4"),  width=640, height=480, fps=30, fourcc="YUYV"),
     },
 )
 
@@ -42,15 +43,15 @@ HF_USER = "kaixiyao"
 
 # Dataset repository name on Hugging Face Hub.
 # The full repo will be: {HF_USER}/{DATASET_NAME}
-DATASET_NAME = "widowxai_grape_grasping_V3"
+DATASET_NAME = "widowxai_grape_grasping_V4_position1"
 
 # Short description of the task being demonstrated in every episode.
 # This label is stored per-frame and is used for language-conditioned training.
-TASK_DESCRIPTION = "Grab the grape"
+TASK_DESCRIPTION = "pick the grape"
 
 # Total number of episodes to record in this session.
 # Each episode = one full demonstration from start to end.
-NUM_EPISODES = 25
+NUM_EPISODES = 50
 
 # Duration of the active recording phase per episode (in seconds).
 # The robot records observations and actions for this long.
@@ -93,8 +94,8 @@ sys.argv = [
     # Camera definitions in YAML-like inline dict format.
     # Keys must match those used in robot_cfg.cameras above.
     "--robot.cameras={"
-    "wrist: {type: opencv, index_or_path: 10, width: 640, height: 480, fps: 30}, "
-    "right: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}"
+        "wrist: {type: opencv, index_or_path: 10, width: 640, height: 480, fps: 30}, "
+        "right: {type: opencv, index_or_path: 4, width: 640, height: 480, fps: 30}"
     "}",
 
     # Teleoperator type registered by the Trossen plugin
