@@ -61,7 +61,7 @@ class InferenceThreadBridgeOverrideTest(unittest.TestCase):
             return observation
 
         args = SimpleNamespace(
-            fps=30,
+            fps=10,
             rtc=False,
             queue_threshold=30,
             task="test task",

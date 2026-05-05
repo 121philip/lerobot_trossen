@@ -14,6 +14,13 @@ class RunInferenceRTCPolicyLoadingTest(unittest.TestCase):
             "outputs/train/smolvla_widowx_grape_grasping_V4_pos234_lora",
         )
 
+    def test_default_control_rate_is_10hz(self):
+        with patch("sys.argv", ["run_inference_rtc.py"]):
+            args = run_inference_rtc.parse_args()
+
+        self.assertEqual(args.fps, 10)
+        self.assertEqual(args.queue_threshold, 10)
+
     def test_load_smolvla_policy_attaches_lora_adapter_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             policy_path = Path(tmpdir)

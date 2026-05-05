@@ -11,7 +11,7 @@
 │ Inference    │  │ Actor        │
 │ Thread       │  │ Thread       │
 │              │  │              │
-│ 每当队列不足  │  │ 30 Hz 固定频  │
+│ 每当队列不足  │  │ 10 Hz 固定频  │
 │ → 调用模型   │  │ 率从队列取动  │
 │   生成新的   │  │ 作 → 发送给  │
 │   动作块     │  │ 机器人       │
@@ -32,7 +32,7 @@
        │ /predicted/      │
        │   joint_states   │ ← 预测目标位置（红色透明机器人）
        │ /predicted_      │
-       │   trajectory     │ ← 完整50步预测轨迹
+       │   trajectory     │ ← 完整预测轨迹
        └──────────────────┘
 
 在 WidowX 机器人上运行 SmolVLA 策略推理。
@@ -170,8 +170,8 @@ def parse_args():
                         help="任务描述文本")
 
     # 控制
-    parser.add_argument("--fps",      type=int,   default=30,
-                        help="机器人控制频率 Hz（默认: 30）")
+    parser.add_argument("--fps",      type=int,   default=10,
+                        help="机器人控制频率 Hz（默认: 10）")
     parser.add_argument("--duration", type=float, default=120.0,
                         help="最大运行时长（秒，默认: 120）")  # --duration 控制整个推理程序的最长运行时间，单位是秒（默认 120 秒 = 2 分钟）。
 
@@ -201,8 +201,8 @@ def parse_args():
     parser.add_argument("--attention-schedule", type=str,  default="EXP",
                         choices=["LINEAR", "EXP", "ONES", "ZEROS"],
                         help="RTC: 前缀注意力衰减方式（默认: EXP）")
-    parser.add_argument("--queue-threshold", type=int, default=30,
-                        help="RTC: 队列低于此值时触发新推理（默认: 30）")
+    parser.add_argument("--queue-threshold", type=int, default=10,
+                        help="RTC: 队列低于此值时触发新推理（默认: 10）")
 
     # 调试
     parser.add_argument("--debug",          action="store_true",

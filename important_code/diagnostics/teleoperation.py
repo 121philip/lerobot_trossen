@@ -19,8 +19,8 @@ robot_cfg = WidowXAIFollowerConfig(
     ip_address="192.168.2.3",
     id="follower",
     cameras={
-        "right":      OpenCVCameraConfig(index_or_path=Path("/dev/video10"), width=640, height=480, fps=30, warmup_s=3),
-        "wrist":      OpenCVCameraConfig(index_or_path=Path("/dev/video4"),  width=640, height=480, fps=30, warmup_s=3),
+        "right":      OpenCVCameraConfig(index_or_path=Path("/dev/video10"), width=640, height=480, fps=10, warmup_s=3),
+        "wrist":      OpenCVCameraConfig(index_or_path=Path("/dev/video4"),  width=640, height=480, fps=10, warmup_s=3),
     },
 )
 
@@ -30,7 +30,7 @@ teleop_cfg = WidowXAILeaderTeleopConfig(
 )
 
 display_data = True
-fps = 60
+fps = 10
 
 # ── Setup ────────────────────────────────────────────────────────────────────
 init_logging()

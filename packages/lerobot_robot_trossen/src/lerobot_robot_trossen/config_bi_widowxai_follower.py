@@ -26,7 +26,7 @@ class BiWidowXAIFollowerRobotConfig(RobotConfig):
     min_time_to_move_multiplier: float = 3.0
 
     # Expected control loop rate in Hz (shared between both arms).
-    loop_rate: int = 30
+    loop_rate: int = 10
 
     # cameras (shared between both arms)
     cameras: dict[str, CameraConfig] = field(default_factory=dict)

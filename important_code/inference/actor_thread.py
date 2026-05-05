@@ -8,7 +8,7 @@
 
 RViz 集成（rviz_publisher 不为 None 时）：
   - 每帧执行后，将实际发送的关节位置推送给 RVizPublisher
-  - 在 RViz 中表现为蓝色实体机器人，以 30 Hz 实时更新
+  - 在 RViz 中表现为蓝色实体机器人，以 10 Hz 实时更新
   - 不会阻塞控制循环（队列满时自动丢帧）
 """
 
@@ -32,7 +32,7 @@ def actor_thread_fn(
     rviz_publisher=None,    # RVizPublisher 实例，None 表示不可视化
 ):
     """
-    执行线程：以恒定 FPS（默认 30Hz）从动作队列取动作并发送给机器人。
+    执行线程：以恒定 FPS（默认 10Hz）从动作队列取动作并发送给机器人。
 
     参数:
         robot_wrapper:   线程安全的机器人封装，干跑时为 None
@@ -50,7 +50,7 @@ def actor_thread_fn(
         empty_count = 0
         empty_since = None
         last_empty_log = 0.0
-        action_interval = 1.0 / args.fps   # 目标帧间隔，例如 1/30 ≈ 0.0333s
+        action_interval = 1.0 / args.fps   # 目标帧间隔，例如 1/10 = 0.1s
 
         while not shutdown_event.is_set():
             start_time = time.perf_counter()

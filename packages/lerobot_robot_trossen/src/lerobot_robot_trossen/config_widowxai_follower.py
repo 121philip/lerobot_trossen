@@ -24,7 +24,7 @@ class WidowXAIFollowerConfig(RobotConfig):
     min_time_to_move_multiplier: float = 3.0
 
     # Control loop rate in Hz
-    loop_rate: int = 30
+    loop_rate: int = 10
 
     # cameras
     cameras: dict[str, CameraConfig] = field(default_factory=dict)

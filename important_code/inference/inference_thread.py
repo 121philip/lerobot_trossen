@@ -14,8 +14,8 @@ RTC 每次迭代步骤：
   G. 将新块融合进动作队列
 
 RViz 集成（rviz_publisher 不为 None 时）：
-  - 每次推理后（步骤 F），将反归一化后的完整动作块（shape=[50, 7]）推送给 RVizPublisher
-  - RVizPublisher 通过 rviz_node.py 发布到 /predicted_ee_marker（50步末端轨迹，橙红色线）
+  - 每次推理后（步骤 F），将反归一化后的完整动作块推送给 RVizPublisher
+  - RVizPublisher 通过 rviz_node.py 发布到 /predicted_ee_marker（未来动作末端轨迹，橙红色线）
   - 注意：推送的是后处理后的真实关节角（弧度/米），与实际执行单位一致，可直接比较
 """
 
@@ -168,7 +168,7 @@ def inference_thread_fn(
                     prev_chunk_left_over=prev_actions,  # 上一块剩余动作（RTC 融合参考）
                 )
                 # actions.shape: [1, chunk_size, action_dim]
-                # 例如: torch.Size([1, 50, 7]) → [批次=1, 未来50步, 7个关节]
+                # 例如: torch.Size([1, chunk_size, 7]) → [批次=1, 未来动作步, 7个关节]
                 logger.debug("Raw chunk shape: %s", actions.shape)
                 logger.debug("Future base joint trajectory: %s", actions[0, :, 0].cpu().numpy())
                 print("Future base joint trajectory: %s", actions[0, :, 0].cpu().numpy())

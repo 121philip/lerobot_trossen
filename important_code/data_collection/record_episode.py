@@ -33,8 +33,8 @@ robot_cfg = WidowXAIFollowerConfig(
     ip_address="192.168.2.3",
     id="follower",
     cameras={
-        "wrist": OpenCVCameraConfig(index_or_path=Path("/dev/video4"),  width=640, height=480, fps=30, fourcc="YUYV"),
-        "right": OpenCVCameraConfig(index_or_path=Path("/dev/video10"), width=640, height=480, fps=30, fourcc="YUYV"),
+        "wrist": OpenCVCameraConfig(index_or_path=Path("/dev/video4"),  width=640, height=480, fps=10, fourcc="YUYV"),
+        "right": OpenCVCameraConfig(index_or_path=Path("/dev/video10"), width=640, height=480, fps=10, fourcc="YUYV"),
     },
 )
 
@@ -51,7 +51,7 @@ TASK_DESCRIPTION = "pick the grape"
 NUM_EPISODES = 40
 EPISODE_TIME_S = 20
 RESET_TIME_S = 5
-FPS = 30
+FPS = 10
 DISPLAY_DATA = True
 PUSH_TO_HUB = True
 PRIVATE = False

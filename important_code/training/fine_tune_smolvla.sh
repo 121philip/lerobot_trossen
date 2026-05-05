@@ -16,15 +16,10 @@ set -euo pipefail
 # Prepare datasets, train, and evaluate checkpoints automatically:
 #   bash important_code/training/prepare_then_fine_tune_smolvla_v4.sh
 
-# RTX A2000 6GB low-VRAM defaults. The desktop session can leave only ~2-3GB
-# free, so avoid allocator fragmentation and let Accelerate use FP16 autocast.
-export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
-export ACCELERATE_MIXED_PRECISION="${ACCELERATE_MIXED_PRECISION:-fp16}"
-
 uv run python important_code/training/run_train_clean.py \
   --policy.path=TrossenRoboticsCommunity/smolvla_solo_red_block \
   --policy.push_to_hub=true \
-  --policy.repo_id=kaixiyao/smolvla_widowx_grape_grasping_V4_pos234_lora \
+  --policy.repo_id=kaixiyao/smolvla_widowx_grape_grasping_V4_pos234_10hz \
   \
   --policy.input_features='{
       "observation.state": {"type": "STATE", "shape": [7]},
@@ -35,23 +30,21 @@ uv run python important_code/training/run_train_clean.py \
       "action": {"type": "ACTION", "shape": [7]}
   }' \
   \
-  --dataset.repo_id=kaixiyao/widowxai_grape_grasping_V4_pos234_train \
-  --output_dir=outputs/train/smolvla_widowx_grape_grasping_V4_pos234_lora \
-  --job_name=smolvla_widowx_grape_grasping_V4_pos234_lora \
+  --dataset.repo_id=kaixiyao/widowxai_grape_grasping_V4_pos234_train_10hz \
+  --output_dir=outputs/train/smolvla_widowx_grape_grasping_V4_pos234_10hz \
+  --job_name=smolvla_widowx_grape_grasping_V4_pos234_10hz \
   \
-  --peft.method_type=LORA \
-  --peft.r=16 \
-  \
-  --batch_size=8 \
+  --batch_size=64 \
   --num_workers=4 \
   --steps=40000 \
   --save_freq=5000 \
   --policy.scheduler_decay_steps=40000 \
-  --policy.n_action_steps=50 \
-  --policy.chunk_size=50 \
+  --policy.optimizer_lr=2e-4 \
+  --policy.n_action_steps=10 \
+  --policy.chunk_size=25 \
   --policy.resize_imgs_with_padding='[512, 512]' \
   --policy.device=cuda \
-  --policy.use_amp=true \
+  --policy.use_amp=false \
   \
   --wandb.enable=true \
   --wandb.project=smolvla_widowx_grape_grasping \
