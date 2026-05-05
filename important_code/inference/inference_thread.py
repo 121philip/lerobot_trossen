@@ -134,8 +134,8 @@ def inference_thread_fn(
 
                 # CroSPI 模式：用 bridge 转发的 /joint_states 覆盖 SDK/mock 关节值，
                 # 确保 VLA 观测的关节状态来自 eTaSL（单一事实来源）。
-                # 若 bridge 尚未发送数据（启动初期 < 1s），保留 SDK/mock 值，不影响推理。
-                if rviz_publisher is not None:
+                # 直接连接真实机器人时必须保留 Trossen SDK 观测，避免在线 bridge 污染状态。
+                if getattr(args, "crospi", False) and rviz_publisher is not None:
                     bridge_joints = rviz_publisher.get_latest_joints()
                     if bridge_joints is not None:
                         print("Feedback: ", bridge_joints)

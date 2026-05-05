@@ -1,50 +1,62 @@
 #!/usr/bin/env bash
-# Fine-tune SmolVLA on kaixiyao/widowxai_grape_grasping
+set -euo pipefail
+
+# Fine-tune SmolVLA on merged V4 grape-grasping datasets.
 #
 # Cameras in dataset:
-#   observation.images.wrist  -> mapped to observation.images.camera1
-#   observation.images.right  -> mapped to observation.images.camera2
+#   observation.images.right -> mapped to observation.images.cam_main
+#   observation.images.wrist -> mapped to observation.images.cam_wrist
 #
-# NOTE: routes through run_train_clean.py so that observation.images.camera3
-# (inherited from smolvla_base's pretrained config) is automatically removed
-# before training starts.
+# Dataset preparation:
+#   uv run python important_code/training/prepare_smolvla_v4_datasets.py --push-to-hub
 #
 # Usage:
-#   chmod +x fine_tune_smolvla.sh
-#   ./important_code/fine_tune_smolvla.sh
+#   bash important_code/training/fine_tune_smolvla.sh
+#
+# Prepare datasets, train, and evaluate checkpoints automatically:
+#   bash important_code/training/prepare_then_fine_tune_smolvla_v4.sh
 
-python important_code/run_train_clean.py \
-  --policy.path=lerobot/smolvla_base \
+# RTX A2000 6GB low-VRAM defaults. The desktop session can leave only ~2-3GB
+# free, so avoid allocator fragmentation and let Accelerate use FP16 autocast.
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+export ACCELERATE_MIXED_PRECISION="${ACCELERATE_MIXED_PRECISION:-fp16}"
+
+uv run python important_code/training/run_train_clean.py \
+  --policy.path=TrossenRoboticsCommunity/smolvla_solo_red_block \
   --policy.push_to_hub=true \
-  --policy.repo_id=kaixiyao/smolvla_widowx_grape_grasping_V3_lora \
+  --policy.repo_id=kaixiyao/smolvla_widowx_grape_grasping_V4_pos234_lora \
   \
   --policy.input_features='{
       "observation.state": {"type": "STATE", "shape": [7]},
-      "observation.images.camera1": {"type": "VISUAL", "shape": [3, 480, 640]},
-      "observation.images.camera2": {"type": "VISUAL", "shape": [3, 480, 640]}
+      "observation.images.cam_main": {"type": "VISUAL", "shape": [3, 480, 640]},
+      "observation.images.cam_wrist": {"type": "VISUAL", "shape": [3, 480, 640]}
   }' \
   --policy.output_features='{
       "action": {"type": "ACTION", "shape": [7]}
   }' \
   \
-  --dataset.repo_id=kaixiyao/widowxai_grape_grasping_V3 \
-  --output_dir=outputs/train/smolvla_widowx_grape_grasping_V3_lora \
-  --job_name=smolvla_widowx_grape_grasping_V3_lora \
+  --dataset.repo_id=kaixiyao/widowxai_grape_grasping_V4_pos234_train \
+  --output_dir=outputs/train/smolvla_widowx_grape_grasping_V4_pos234_lora \
+  --job_name=smolvla_widowx_grape_grasping_V4_pos234_lora \
   \
   --peft.method_type=LORA \
   --peft.r=16 \
   \
   --batch_size=8 \
-  --steps=30000 \
+  --num_workers=4 \
+  --steps=40000 \
   --save_freq=5000 \
+  --policy.scheduler_decay_steps=40000 \
   --policy.n_action_steps=50 \
   --policy.chunk_size=50 \
+  --policy.resize_imgs_with_padding='[512, 512]' \
   --policy.device=cuda \
+  --policy.use_amp=true \
   \
   --wandb.enable=true \
   --wandb.project=smolvla_widowx_grape_grasping \
   \
   --rename_map='{
-      "observation.images.wrist": "observation.images.camera1",
-      "observation.images.right": "observation.images.camera2"
+      "observation.images.right": "observation.images.cam_main",
+      "observation.images.wrist": "observation.images.cam_wrist"
   }'

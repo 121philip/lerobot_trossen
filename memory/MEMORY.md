@@ -7,3 +7,4 @@
 - [Follower 安全回正与诊断工具](project_follower_homing_safety.md) — disconnect() 三步回正(joint_3预步骤)、Q/R键盘控制、电机健康监控脚本、JointLimit正确属性名
 - [RViz 推理轨迹可视化系统](project_rviz_visualization.md) — UDP桥接架构、预测EE marker、CroSPI shared-control 橙蓝轨迹脱节诊断、alpha/target锁存/eTaSL约束问题
 - [SmolVLA LoRA 训练配置与冻结策略](project_lora_training.md) — PEFT/LoRA 支持、target_modules、train_expert_only/freeze_vision_encoder/train_state_proj 三个冻结参数（默认均True）
+- [SmolVLA V4 数据集处理、微调与离线验证](project_smolvla_v4_training_validation.md) — V4 position2/3/4 分层 split/merge、Trossen checkpoint LoRA 微调、train/val 离线 checkpoint 评估、CSV/JSON/Matplotlib 图输出、checkpoints/last 含义、LoRA adapter 加载修复、HF 文件小原因、自动化脚本与 skip-data-prep 注意事项

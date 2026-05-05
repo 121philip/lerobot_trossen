@@ -95,12 +95,14 @@ from threading import Event, Thread
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 try:
+    from lerobot.configs.policies import PreTrainedConfig
     from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
     from lerobot.policies.factory import make_pre_post_processors
     from lerobot.cameras.opencv import OpenCVCameraConfig
     from lerobot.configs.types import RTCAttentionSchedule
     from lerobot.policies.rtc.configuration_rtc import RTCConfig
     from lerobot.policies.rtc.action_queue import ActionQueue
+    from peft import PeftConfig, PeftModel
 except ImportError as e:
     print(f"Error importing lerobot: {e}")
     print("Requires lerobot >= 0.4.3 with RTC support.")
@@ -122,10 +124,27 @@ logger = logging.getLogger(__name__)
 
 # === 默认配置 ===
 DEFAULT_ROBOT_IP   = "192.168.2.3"
-DEFAULT_CAM1_ID    = 10   # 手腕摄像头
-DEFAULT_CAM2_ID    = 4    # 右侧摄像头
-DEFAULT_TRAIN_DIR  = "outputs/train/smolvla_widowx_grape_grasping_V3"  # 替换为实际训练输出目录
+DEFAULT_CAM1_ID    = 4    # 手腕摄像头
+DEFAULT_CAM2_ID    = 10   # 右侧摄像头
+DEFAULT_TRAIN_DIR  = "outputs/train/smolvla_widowx_grape_grasping_V4_pos234_lora"
 TASK_DESCRIPTION   = "Grab the grape"
+
+
+def load_smolvla_policy(policy_path: str):
+    path = Path(policy_path)
+
+    if (path / "adapter_config.json").exists():
+        logger.info("Loading LoRA adapter policy from: %s", policy_path)
+        policy_config = PreTrainedConfig.from_pretrained(policy_path)
+        peft_config = PeftConfig.from_pretrained(policy_path)
+        base_policy = SmolVLAPolicy.from_pretrained(
+            peft_config.base_model_name_or_path,
+            config=policy_config,
+        )
+        return PeftModel.from_pretrained(base_policy, policy_path, config=peft_config)
+
+    logger.info("Loading full policy from: %s", policy_path)
+    return SmolVLAPolicy.from_pretrained(policy_path)
 
 
 def parse_args():
@@ -136,9 +155,9 @@ def parse_args():
     # 硬件
     parser.add_argument("--robot-ip",  type=str, default=DEFAULT_ROBOT_IP)
     parser.add_argument("--cam1",      type=int, default=DEFAULT_CAM1_ID,
-                        help="手腕摄像头索引 (默认: 10)")
+                        help="手腕摄像头索引 (默认: 4)")
     parser.add_argument("--cam2",      type=int, default=DEFAULT_CAM2_ID,
-                        help="右侧摄像头索引 (默认: 4)")
+                        help="右侧摄像头索引 (默认: 10)")
     parser.add_argument("--dry-run",   action="store_true",
                         help="干跑模式，无需真实机器人硬件")
     parser.add_argument("--crospi",    action="store_true",
@@ -206,7 +225,7 @@ def main():
     # ── 1. 加载策略模型 ──────────────────────────────────────────
     policy_path = resolve_checkpoint_path(args.train_dir)
     logger.info(f"Loading policy from: {policy_path}")
-    policy = SmolVLAPolicy.from_pretrained(policy_path)
+    policy = load_smolvla_policy(policy_path)
 
     rtc_config = RTCConfig(
         enabled=args.rtc,
