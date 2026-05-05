@@ -34,7 +34,7 @@ uv run python important_code/training/run_train_clean.py \
   --output_dir=outputs/train/smolvla_widowx_grape_grasping_V4_pos234_10hz \
   --job_name=smolvla_widowx_grape_grasping_V4_pos234_10hz \
   \
-  --batch_size=64 \
+  --batch_size=32 \
   --num_workers=4 \
   --steps=40000 \
   --save_freq=5000 \
