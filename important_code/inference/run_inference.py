@@ -19,7 +19,7 @@
        │  ActionQueue     │
        └────────┬─────────┘
                 ▼
-         (RTC 融合动作块)
+         动作队列（--rtc 时融合动作块）
                 │
                 │ RViz publisher（始终开启）
                 ▼
@@ -48,22 +48,25 @@
 
 Usage:
   # 干跑（无硬件，测试推理流程）：
-  python important_code/inference/run_inference_rtc.py --dry-run
+  python important_code/inference/run_inference.py --dry-run
 
   # 标准模式，连接机器人：
-  python important_code/inference/run_inference_rtc.py --robot-ip 192.168.2.3
+  python important_code/inference/run_inference.py --robot-ip 192.168.2.3
 
-  # 开启 RTC（推荐，动作更平滑）：
-  python important_code/inference/run_inference_rtc.py --rtc
+  # 开启 RTC（可选，动作更平滑）：
+  python important_code/inference/run_inference.py --rtc
 
   # 指定训练输出目录：
-  python important_code/inference/run_inference_rtc.py --train-dir outputs/train/my_run --rtc
+  python important_code/inference/run_inference.py --train-dir outputs/train/my_run
 
-  # 调试模式：
-  python important_code/inference/run_inference_rtc.py --dry-run --debug
+  # 指定 Hugging Face 模型（默认已使用 fulloa10/smolVLA_grape_10hz_9000）：
+  python important_code/inference/run_inference.py --train-dir fulloa10/smolVLA_grape_10hz_9000
+
+  # RTC 调试模式：
+  python important_code/inference/run_inference.py --dry-run --rtc --debug
 
   # RViz 可视化默认开启，启动前先在 crospi workspace 运行可视化节点：
-  python important_code/inference/run_inference_rtc.py --dry-run   # 干跑验证
+  python important_code/inference/run_inference.py --dry-run   # 干跑验证
 
 RViz 可视化使用步骤：
   1. 终端1（先启动，在 kaixi_crospi_ws）：
@@ -71,7 +74,7 @@ RViz 可视化使用步骤：
      该命令会启动 vla_ros_bridge_node.py + robot_state_publisher 并打开 RViz2。
 
   2. 终端2（后启动）：
-       python important_code/inference/run_inference_rtc.py [其他参数]
+       python important_code/inference/run_inference.py [其他参数]
 
   3. RViz 中可以看到：
        蓝色实体机器人        = 真实混合轨迹（VLA + SpaceMouse，来自 /joint_states 反馈）
@@ -99,25 +102,21 @@ try:
     from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
     from lerobot.policies.factory import make_pre_post_processors
     from lerobot.cameras.opencv import OpenCVCameraConfig
-    from lerobot.configs.types import RTCAttentionSchedule
-    from lerobot.policies.rtc.configuration_rtc import RTCConfig
-    from lerobot.policies.rtc.action_queue import ActionQueue
     from peft import PeftConfig, PeftModel
 except ImportError as e:
     print(f"Error importing lerobot: {e}")
     print("Requires lerobot >= 0.4.3 with RTC support.")
     sys.exit(1)
 
-try:
-    from lerobot.policies.rtc.debug_visualizer import RTCDebugVisualizer
-    _HAS_DEBUG_VISUALIZER = True
-except ImportError:
-    _HAS_DEBUG_VISUALIZER = False
-
 from important_code.utils import DEVICE, resolve_checkpoint_path
 from important_code.inference.robot_wrapper import RobotWrapper
 from important_code.inference.inference_thread import inference_thread_fn
 from important_code.inference.actor_thread import actor_thread_fn
+from important_code.inference.rtc_runtime import (
+    configure_policy_rtc,
+    make_action_queue,
+    maybe_plot_rtc_debug,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -126,8 +125,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_ROBOT_IP   = "192.168.2.3"
 DEFAULT_CAM1_ID    = 4    # 手腕摄像头
 DEFAULT_CAM2_ID    = 10   # 右侧摄像头
-DEFAULT_TRAIN_DIR  = "outputs/train/smolvla_widowx_grape_grasping_V4_pos234_lora"
-TASK_DESCRIPTION   = "Grab the grape"
+DEFAULT_TRAIN_DIR  = "fulloa10/smolVLA_grape_10hz_9000"
+TASK_DESCRIPTION   = "pick the grape"
 
 
 def load_smolvla_policy(policy_path: str):
@@ -165,13 +164,15 @@ def parse_args():
 
     # 策略
     parser.add_argument("--train-dir", type=str, default=DEFAULT_TRAIN_DIR,
-                        help="本地训练输出目录路径")
+                        help="本地训练输出目录路径或 Hugging Face 模型 repo id")
     parser.add_argument("--task",      type=str, default=TASK_DESCRIPTION,
                         help="任务描述文本")
 
-    # 控制
-    parser.add_argument("--fps",      type=int,   default=10,
-                        help="机器人控制频率 Hz（默认: 10）")
+    # 控制/采集频率：相机可 30fps 后台采集，模型和机器人控制默认只跑 10Hz。
+    parser.add_argument("--camera-fps", type=int, default=30,
+                        help="相机后台采集帧率 fps（默认: 30）")
+    parser.add_argument("--control-fps", "--fps", dest="control_fps", type=int, default=10,
+                        help="模型触发和机器人控制频率 Hz（默认: 10；--fps 为兼容别名）")
     parser.add_argument("--duration", type=float, default=120.0,
                         help="最大运行时长（秒，默认: 120）")  # --duration 控制整个推理程序的最长运行时间，单位是秒（默认 120 秒 = 2 分钟）。
 
@@ -212,7 +213,9 @@ def parse_args():
     parser.add_argument("--print-publish", action="store_true",
                         help="单独测试时打印 VLA 发布内容（无需 bridge_node 在线）")
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.fps = args.control_fps  # Backward compatibility for older helper code/tests.
+    return args
 
 
 def main():
@@ -227,18 +230,7 @@ def main():
     logger.info(f"Loading policy from: {policy_path}")
     policy = load_smolvla_policy(policy_path)
 
-    rtc_config = RTCConfig(
-        enabled=args.rtc,
-        execution_horizon=args.execution_horizon,
-        max_guidance_weight=args.guidance_weight,
-        prefix_attention_schedule=RTCAttentionSchedule[args.attention_schedule],
-    )
-    if args.debug:
-        rtc_config.debug = True
-        rtc_config.debug_maxlen = args.debug_maxlen
-
-    policy.config.rtc_config = rtc_config
-    policy.init_rtc_processor()
+    rtc_config = configure_policy_rtc(policy, args)
     policy.to(DEVICE).eval()
     logger.info(
         "[HEALTH] Policy config: chunk_size=%s | n_action_steps=%s | input_features=%s | output_features=%s",
@@ -258,7 +250,13 @@ def main():
     )
     logger.info("Processors loaded.")
     logger.info("[HEALTH] Task string: %r", args.task)
-    logger.info("[HEALTH] RTC enabled: %s | queue_threshold=%s | fps=%s", bool(args.rtc), args.queue_threshold, args.fps)
+    logger.info(
+        "[HEALTH] RTC enabled: %s | queue_threshold=%s | camera_fps=%s | control_fps=%s",
+        bool(args.rtc),
+        args.queue_threshold,
+        args.camera_fps,
+        args.control_fps,
+    )
     if args.rtc:
         logger.warning("[HEALTH] RTC is enabled; first-pass grape diagnosis should use the default non-RTC mode.")
     else:
@@ -277,8 +275,8 @@ def main():
                 robot_config = CroSPIFollowerConfig(
                     ip_address=args.robot_ip,
                     cameras={
-                        "wrist": OpenCVCameraConfig(args.cam1, fps=args.fps, width=640, height=480, fourcc="YUYV"),
-                        "right": OpenCVCameraConfig(args.cam2, fps=args.fps, width=640, height=480, fourcc="YUYV"),
+                        "wrist": OpenCVCameraConfig(args.cam1, fps=args.camera_fps, width=640, height=480, fourcc="YUYV"),
+                        "right": OpenCVCameraConfig(args.cam2, fps=args.camera_fps, width=640, height=480, fourcc="YUYV"),
                     },
                 )
                 logger.info("CroSPI mode: observations via Trossen SDK, send_action is no-op.")
@@ -287,8 +285,8 @@ def main():
                 robot_config = WidowXAIFollowerConfig(
                     ip_address=args.robot_ip,
                     cameras={
-                        "wrist": OpenCVCameraConfig(args.cam1, fps=args.fps, width=640, height=480, fourcc="YUYV"),
-                        "right": OpenCVCameraConfig(args.cam2, fps=args.fps, width=640, height=480, fourcc="YUYV"),
+                        "wrist": OpenCVCameraConfig(args.cam1, fps=args.camera_fps, width=640, height=480, fourcc="YUYV"),
+                        "right": OpenCVCameraConfig(args.cam2, fps=args.camera_fps, width=640, height=480, fourcc="YUYV"),
                     },
                     max_relative_target=5.0,   # 单步最大位移限制（安全保护）
                 )
@@ -311,7 +309,7 @@ def main():
 
     # ── 4. 创建动作队列，启动推理线程和执行线程 ─────────────────
     shutdown_event = Event()
-    action_queue = ActionQueue(rtc_config)
+    action_queue = make_action_queue(rtc_config)
 
     # 始终启动 RViz 可视化发布线程（UDP fire-and-forget，无接收方时无副作用）
     from important_code.inference.rviz_publisher import RVizPublisher
@@ -319,7 +317,13 @@ def main():
     rviz_publisher.start()
     logger.info("RViz publisher started.")
 
-    logger.info(f"Task: {args.task} | FPS: {args.fps} | Duration: {args.duration}s")
+    logger.info(
+        "Task: %s | camera_fps=%s | control_fps=%s | Duration: %ss",
+        args.task,
+        args.camera_fps,
+        args.control_fps,
+        args.duration,
+    )
 
     inf_thread = Thread(
         target=inference_thread_fn,
@@ -368,16 +372,7 @@ def main():
         logger.info("Robot disconnected.")
 
     # ── 7. 调试数据输出（仅 --debug 模式）───────────────────────
-    rtc_processor = getattr(policy, "rtc_processor", None)
-    if args.debug and rtc_processor is not None:
-        debug_data = rtc_processor.get_debug_data()
-        for key, val in debug_data.items():
-            logger.info(f"[DEBUG] {key}: {val}")
-        if _HAS_DEBUG_VISUALIZER:
-            viz = RTCDebugVisualizer()
-            viz.plot(debug_data)  # type: ignore[union-attr]
-        else:
-            logger.info("[DEBUG] RTCDebugVisualizer not available.")
+    maybe_plot_rtc_debug(policy, args)
 
     logger.info("Done.")
 

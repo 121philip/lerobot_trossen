@@ -58,8 +58,8 @@ class CameraBindingsTest(unittest.TestCase):
             {"right": "/dev/video10", "wrist": "/dev/video4"},
         )
 
-    def test_rtc_inference_defaults_match_flipped_camera_paths(self):
-        constants = _module_constants("important_code/inference/run_inference_rtc.py")
+    def test_inference_defaults_match_flipped_camera_paths(self):
+        constants = _module_constants("important_code/inference/run_inference.py")
 
         self.assertEqual(constants["DEFAULT_CAM1_ID"], 4)
         self.assertEqual(constants["DEFAULT_CAM2_ID"], 10)

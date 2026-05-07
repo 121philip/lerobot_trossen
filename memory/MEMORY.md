@@ -8,3 +8,4 @@
 - [RViz 推理轨迹可视化系统](project_rviz_visualization.md) — UDP桥接架构、预测EE marker、CroSPI shared-control 橙蓝轨迹脱节诊断、alpha/target锁存/eTaSL约束问题
 - [SmolVLA LoRA 训练配置与冻结策略](project_lora_training.md) — PEFT/LoRA 支持、target_modules、train_expert_only/freeze_vision_encoder/train_state_proj 三个冻结参数（默认均True）
 - [SmolVLA V4 数据集处理、微调与离线验证](project_smolvla_v4_training_validation.md) — V4 position2/3/4 分层 split/merge、Trossen checkpoint LoRA 微调、train/val 离线 checkpoint 评估、CSV/JSON/Matplotlib 图输出、checkpoints/last 含义、LoRA adapter 加载修复、HF 文件小原因、自动化脚本与 skip-data-prep 注意事项
+- [SmolVLA 10Hz 推理运行时分析](project_smolvla_10hz_inference_runtime.md) — `chunk_size=25`/`n_action_steps=10` 语义、async 与 RTC 区别、30fps 相机 + 10Hz 控制部署、非 RTC 截断和运行命令

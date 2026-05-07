@@ -32,7 +32,7 @@ from lerobot.policies.utils import prepare_observation_for_inference
 from lerobot.policies.rtc.action_queue import ActionQueue
 from lerobot.policies.rtc.latency_tracker import LatencyTracker
 
-from important_code.utils import DEVICE, JOINT_NAMES
+from important_code.utils import DEVICE, JOINT_NAMES, get_control_fps
 from important_code.inference.robot_wrapper import create_mock_observation, robot_obs_to_policy_obs
 from important_code.shared_control.confidence import (
     CBCConfidenceEstimator,
@@ -63,7 +63,7 @@ def inference_thread_fn(
         action_queue:    共享动作队列（推理线程写入，执行线程读取）
         shutdown_event:  全局关闭信号
         args:            命令行参数（fps、task、queue_threshold 等）
-        rviz_publisher:  RVizPublisher 实例（--rviz 时由 run_inference_rtc.py 传入）
+        rviz_publisher:  RVizPublisher 实例（由 run_inference.py 传入）
                          传入后每块推理完成后将预测动作发布到 /predicted/joint_states
                          不传（默认 None）则不启用可视化，不影响推理性能
     """
@@ -71,7 +71,8 @@ def inference_thread_fn(
         logger.info("[INFERENCE] Starting inference thread")
 
         latency_tracker = LatencyTracker()   # 维护历史推理延迟的滑动窗口
-        time_per_step = 1.0 / args.fps       # 每帧时间（秒）
+        control_fps = get_control_fps(args)
+        time_per_step = 1.0 / control_fps    # 控制/策略时间步（秒）
         confidence_method = getattr(args, "confidence_method", "regression_cbc")
         alpha_mode = getattr(args, "alpha_mode", "constant")
         alpha_const = float(getattr(args, "alpha_const", 0.5))
@@ -80,7 +81,7 @@ def inference_thread_fn(
         confidence_estimator = CBCConfidenceEstimator(
             d=5,
             gamma=1.0,
-            fps=args.fps,
+            fps=control_fps,
             confidence_method=confidence_method,
         )
 
@@ -90,7 +91,7 @@ def inference_thread_fn(
         logger.info("[HEALTH] Task string: %r", args.task)
         logger.info(
             "[HEALTH] RTC enabled: %s | effective queue_threshold=%s | fps=%s",
-            bool(args.rtc), queue_threshold, args.fps,
+            bool(args.rtc), queue_threshold, control_fps,
         )
         logger.info(
             "[HEALTH] C_VLA method=%s | alpha_mode=%s | alpha_const=%.3f | tau_c=%.3f | k_c=%.3f",
@@ -173,14 +174,23 @@ def inference_thread_fn(
                 logger.debug("Future base joint trajectory: %s", actions[0, :, 0].cpu().numpy())
                 print("Future base joint trajectory: %s", actions[0, :, 0].cpu().numpy())
 
-                # ── F. 保存原始动作 + 后处理 + 记录延迟 ──
-                # merge 需要归一化空间的原始动作来计算引导梯度
-                original_actions = actions.squeeze(0).clone()
-                postprocessed_actions = postprocessor(actions).squeeze(0)
-                # print(postprocessed_actions.shape)
-                print("POST Future base joint trajectory: %s", postprocessed_actions[:, 0].cpu().numpy())
+                # ── F. 保存完整预测块 + 选择实际入队动作 ──
+                # full_original_chunk 保留归一化空间动作，RTC 融合需要它。
+                # full_robot_chunk 是反归一化后的机器人关节目标，用于执行和可视化。
+                full_original_chunk = actions.squeeze(0).clone()
+                full_robot_chunk = postprocessor(actions).squeeze(0)
+                print("POST Future base joint trajectory: %s", full_robot_chunk[:, 0].cpu().numpy())
 
-                confidence_metrics = confidence_estimator.update(postprocessed_actions)
+                if args.rtc:
+                    queued_original_chunk = full_original_chunk
+                    queued_robot_chunk = full_robot_chunk
+                else:
+                    # n_action_steps = int(getattr(policy.config, "n_action_steps", len(full_robot_chunk)))  # 可以调整入队的动作步数，默认为整个块
+                    n_action_steps = 25
+                    queued_original_chunk = full_original_chunk[:n_action_steps]
+                    queued_robot_chunk = full_robot_chunk[:n_action_steps]
+
+                confidence_metrics = confidence_estimator.update(full_robot_chunk)  # 置信度计算需检查！！！
                 alpha = compute_alpha(
                     confidence_metrics.c_cbc,
                     alpha_mode=alpha_mode,
@@ -206,15 +216,15 @@ def inference_thread_fn(
                     )
 
                 if rviz_publisher is not None:
-                    rviz_publisher.put_predicted(postprocessed_actions.cpu().numpy())
+                    rviz_publisher.put_predicted(full_robot_chunk.cpu().numpy())
                     if hasattr(rviz_publisher, "put_alpha"):
                         rviz_publisher.put_alpha(alpha)
 
-                # ── G. 融合新块进动作队列（RTC 核心操作）──
-                # merge 在 execution_horizon 步的过渡区内以 guidance_weight 强度
-                # 对新旧块做梯度引导融合，消除块切换处的抖动。
+                # ── G. 写入动作队列 ──
+                # RTC 模式：merge 会按延迟替换队列，并配合 RTC 融合新旧 chunk。
+                # 非 RTC 模式：merge 只是追加 queued chunk；这里 queued chunk 已截断到 n_action_steps。
                 action_queue.merge(
-                    original_actions, postprocessed_actions,
+                    queued_original_chunk, queued_robot_chunk,
                     new_delay, action_index_before,
                 )
                 idle_gap_ms = 0.0

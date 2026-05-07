@@ -90,7 +90,7 @@ class WidowXAIFollower(Robot):
         self.driver.set_all_modes(trossen_arm.Mode.position)
         self.driver.set_all_positions(
             self.config.staged_positions,
-            goal_time=2.0,
+            goal_time=5.0,
             blocking=True,
         )
 
@@ -205,24 +205,24 @@ class WidowXAIFollower(Robot):
         current_positions = list(self.driver.get_all_positions())
         prestep_positions = current_positions.copy()
         prestep_positions[3] = self.config.staged_positions[3]  # π/5 rad (36°)
-        self.driver.set_all_positions(
-            trossen_arm.VectorDouble(prestep_positions),
-            goal_time=2.0,
-            blocking=True,
-        )
+        # self.driver.set_all_positions(
+        #     trossen_arm.VectorDouble(prestep_positions),
+        #     goal_time=2.0,
+        #     blocking=True,
+        # )
 
-        # Move the arm to the staged positions before disconnecting
-        self.driver.set_all_positions(
-            self.config.staged_positions,
-            goal_time=2.0,
-            blocking=True,
-        )
-        # Move the arm to the sleep position (all positions to 0.0)
-        self.driver.set_all_positions(
-            [0.0] * len(self.config.joint_names),
-            goal_time=2.0,
-            blocking=True,
-        )
+        # # Move the arm to the staged positions before disconnecting
+        # self.driver.set_all_positions(
+        #     self.config.staged_positions,
+        #     goal_time=2.0,
+        #     blocking=True,
+        # )
+        # # Move the arm to the sleep position (all positions to 0.0)
+        # self.driver.set_all_positions(
+        #     [0.0] * len(self.config.joint_names),
+        #     goal_time=2.0,
+        #     blocking=True,
+        # )
 
         self.driver.cleanup()
         for cam in self.cameras.values():

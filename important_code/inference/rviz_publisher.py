@@ -35,6 +35,30 @@ _UDP_PORT_JS = 9789   # 反向：bridge → lerobot 关节状态
 _MSG_ACTUAL    = b"\x00"
 _MSG_PREDICTED = b"\x01"
 _MSG_ALPHA     = b"\x02"
+_JOINT_COUNT = 7
+
+
+def _normalize_actual_joints(joint_positions: np.ndarray) -> np.ndarray:
+    """Return a flat 7-joint vector with the gripper as the final element."""
+    joints = np.asarray(joint_positions, dtype=np.float64).reshape(-1)
+    if joints.size != _JOINT_COUNT:
+        raise ValueError(
+            f"Expected {_JOINT_COUNT} joints including gripper, got {joints.size}"
+        )
+    return joints
+
+
+def _normalize_predicted_chunk(chunk: np.ndarray) -> np.ndarray:
+    """Return an Nx7 predicted chunk with the gripper in column 6."""
+    joints = np.asarray(chunk, dtype=np.float64)
+    if joints.ndim == 1:
+        return _normalize_actual_joints(joints).reshape(1, _JOINT_COUNT)
+    if joints.ndim != 2 or joints.shape[1] != _JOINT_COUNT:
+        raise ValueError(
+            f"Expected predicted chunk shape (N, {_JOINT_COUNT}) including gripper, "
+            f"got {joints.shape}"
+        )
+    return joints
 
 
 class RVizPublisher:
@@ -58,6 +82,7 @@ class RVizPublisher:
 
     def put_actual(self, joint_positions: np.ndarray):
         """actor_thread 每帧调用，传入 shape=[7,] 的关节位置（弧度/米）。"""
+        joint_positions = _normalize_actual_joints(joint_positions)
         if self._verbose:
             np.set_printoptions(precision=4, suppress=True)
             print(f"[PUBLISH] ACTUAL  joints={np.asarray(joint_positions).tolist()}", flush=True)
@@ -65,6 +90,7 @@ class RVizPublisher:
 
     def put_predicted(self, chunk: np.ndarray):
         """inference_thread 每块调用，传入 shape=[N, 7] 的预测动作数组。"""
+        chunk = _normalize_predicted_chunk(chunk)
         if self._verbose:
             print(f"[PUBLISH] PREDICTED shape={np.asarray(chunk).shape}", flush=True)
         self._enqueue(_MSG_PREDICTED, chunk)

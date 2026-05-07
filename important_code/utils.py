@@ -40,3 +40,8 @@ def resolve_checkpoint_path(train_dir: str) -> str:
     if not pretrained.exists():
         raise FileNotFoundError(f"pretrained_model not found at: {pretrained}")
     return str(pretrained)
+
+
+def get_control_fps(args) -> float:
+    """Return the policy/control loop frequency, preserving old args.fps callers."""
+    return float(getattr(args, "control_fps", getattr(args, "fps", 10)))

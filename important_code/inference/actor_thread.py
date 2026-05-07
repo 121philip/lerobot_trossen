@@ -20,6 +20,7 @@ from threading import Event
 from lerobot.policies.rtc.action_queue import ActionQueue
 
 from important_code.inference.robot_wrapper import policy_action_to_robot_action
+from important_code.utils import get_control_fps
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def actor_thread_fn(
         action_queue:    共享动作队列（推理线程写入，本线程读取）
         shutdown_event:  全局关闭信号
         args:            命令行参数（fps 等）
-        rviz_publisher:  RVizPublisher 实例（--rviz 时由 run_inference_rtc.py 传入）
+        rviz_publisher:  RVizPublisher 实例（由 run_inference.py 传入）
                          传入后每帧将实际关节位置发布到 /actual/joint_states
                          不传（默认 None）则不启用可视化，不影响控制性能
     """
@@ -50,7 +51,8 @@ def actor_thread_fn(
         empty_count = 0
         empty_since = None
         last_empty_log = 0.0
-        action_interval = 1.0 / args.fps   # 目标帧间隔，例如 1/10 = 0.1s
+        control_fps = get_control_fps(args)
+        action_interval = 1.0 / control_fps   # 目标帧间隔，例如 1/10 = 0.1s
 
         while not shutdown_event.is_set():
             start_time = time.perf_counter()

@@ -15,12 +15,13 @@ from lerobot_teleoperator_trossen import WidowXAILeaderTeleopConfig
 # Must be called before instantiating any third-party configs/robots
 register_third_party_devices()
 
+# 这是相机采集 FPS。比如 right 和 wrist 两个摄像头都请求以 30 FPS、640x480 输出图像。它会通过 OpenCV 设置摄像头的 CAP_PROP_FPS，影响相机后台线程读帧速度和图像流频率。
 robot_cfg = WidowXAIFollowerConfig(
     ip_address="192.168.2.3",
     id="follower",
     cameras={
-        "right":      OpenCVCameraConfig(index_or_path=Path("/dev/video10"), width=640, height=480, fps=10, warmup_s=3),
-        "wrist":      OpenCVCameraConfig(index_or_path=Path("/dev/video4"),  width=640, height=480, fps=10, warmup_s=3),
+        "right":      OpenCVCameraConfig(index_or_path=Path("/dev/video10"), width=640, height=480, fps=30, warmup_s=3),
+        "wrist":      OpenCVCameraConfig(index_or_path=Path("/dev/video4"),  width=640, height=480, fps=30, warmup_s=3),
     },
 )
 
@@ -30,7 +31,7 @@ teleop_cfg = WidowXAILeaderTeleopConfig(
 )
 
 display_data = True
-fps = 10
+fps = 30  # 这是遥操作控制循环目标频率。它传给 teleop_loop(... fps=fps)，表示主循环尽量每秒跑 30 次：读取机器人 observation、读取 leader 动作、处理 action、发送给 follower、可视化，然后 sleep 补齐周期。
 
 # ── Setup ────────────────────────────────────────────────────────────────────
 init_logging()
