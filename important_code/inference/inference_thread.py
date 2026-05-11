@@ -254,6 +254,19 @@ def inference_thread_fn(
                         ),
                         sentinel_result.reason,
                     )
+                    c_progress_text = (
+                        f"{sentinel_result.c_progress:.4f}"
+                        if sentinel_result.c_progress is not None
+                        else "None"
+                    )
+                    print(
+                        "[SENTINEL_VALUES] "
+                        f"C_action={sentinel_result.c_action:.4f} "
+                        f"C_progress={c_progress_text} "
+                        f"R_raw={sentinel_result.r_raw:.4f} "
+                        f"R={sentinel_result.r_smooth:.4f}",
+                        flush=True,
+                    )
 
                 # 参数合理性检查：queue_threshold 应大于 execution_horizon + delay
                 if args.rtc and args.queue_threshold < args.execution_horizon + new_delay:
