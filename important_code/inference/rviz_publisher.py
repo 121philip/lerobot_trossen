@@ -35,7 +35,9 @@ _UDP_PORT_JS = 9789   # 反向：bridge → lerobot 关节状态
 _MSG_ACTUAL    = b"\x00"
 _MSG_PREDICTED = b"\x01"
 _MSG_ALPHA     = b"\x02"
+_MSG_WEIGHTS   = b"\x03"
 _JOINT_COUNT = 7
+_WEIGHT_COUNT = 2
 
 
 def _normalize_actual_joints(joint_positions: np.ndarray) -> np.ndarray:
@@ -59,6 +61,16 @@ def _normalize_predicted_chunk(chunk: np.ndarray) -> np.ndarray:
             f"got {joints.shape}"
         )
     return joints
+
+
+def _normalize_weights(w_vla: float, w_human: float) -> np.ndarray:
+    """Return non-negative [w_vla, w_human] for Sentinel eTaSL weighting."""
+    weights = np.array([w_vla, w_human], dtype=np.float64).reshape(-1)
+    if weights.size != _WEIGHT_COUNT:
+        raise ValueError(f"Expected {_WEIGHT_COUNT} Sentinel weights, got {weights.size}")
+    if not np.all(np.isfinite(weights)):
+        raise ValueError("Sentinel weights must be finite")
+    return np.maximum(weights, 0.0)
 
 
 class RVizPublisher:
@@ -101,6 +113,16 @@ class RVizPublisher:
         if self._verbose:
             print(f"[PUBLISH] ALPHA   alpha={alpha_array[0]:.4f}", flush=True)
         self._enqueue(_MSG_ALPHA, alpha_array)
+
+    def put_weights(self, w_vla: float, w_human: float):
+        """Send Sentinel direct eTaSL weights to the CroSPI bridge."""
+        weights = _normalize_weights(w_vla, w_human)
+        if self._verbose:
+            print(
+                f"[PUBLISH] WEIGHTS w_vla={weights[0]:.4f} w_human={weights[1]:.4f}",
+                flush=True,
+            )
+        self._enqueue(_MSG_WEIGHTS, weights)
 
     def get_latest_joints(self) -> Optional[np.ndarray]:
         """返回 bridge 最近转发的关节状态 [7,]，若尚未收到则返回 None。"""

@@ -190,6 +190,43 @@ def parse_args():
     parser.add_argument("--alpha-k-c", type=float, default=8.0,
                         help="Sigmoid gain k_c for alpha-mode=confidence")
 
+    # Sentinel-style runtime arbitration. Disabled by default.
+    parser.add_argument("--sentinel", action="store_true",
+                        help="Enable Sentinel fast action monitor + cloud VLM progress monitor")
+    parser.add_argument("--sentinel-log-only", action=argparse.BooleanOptionalAction, default=True,
+                        help="Log Sentinel weights without publishing them to CroSPI/eTaSL")
+    parser.add_argument("--sentinel-vlm-provider", type=str, default="openai",
+                        choices=["openai", "gemini"],
+                        help="Cloud VLM provider for Sentinel progress monitoring")
+    parser.add_argument("--sentinel-vlm-model", type=str, default=None,
+                        help="Cloud VLM model name; defaults to gpt-4o or gemini-3-flash-preview")
+    parser.add_argument("--sentinel-interval-s", type=float, default=2.0,
+                        help="Seconds between cloud VLM progress checks")
+    parser.add_argument("--sentinel-timeout-s", type=float, default=5.0,
+                        help="Cloud VLM request timeout in seconds")
+    parser.add_argument("--sentinel-log-dir", type=str, default="outputs/sentinel",
+                        help="Directory for Sentinel JSONL/CSV logs")
+    parser.add_argument("--sentinel-action-tau", type=float, default=0.4,
+                        help="Fast action consistency threshold for action_alarm")
+    parser.add_argument("--sentinel-jerk-max", type=float, default=None,
+                        help="Optional jerk_max threshold for fast Sentinel action_alarm")
+    parser.add_argument("--sentinel-boundary-jump-max", type=float, default=None,
+                        help="Optional boundary_jump_max threshold for fast Sentinel action_alarm")
+    parser.add_argument("--sentinel-progress-threshold", type=float, default=0.7,
+                        help="VLM failure_likelihood threshold for raw progress alarms")
+    parser.add_argument("--sentinel-progress-alarm-count", type=int, default=2,
+                        help="Consecutive raw progress alarms required to trigger progress_alarm")
+    parser.add_argument("--sentinel-ema-beta", type=float, default=0.8,
+                        help="EMA beta for smoothing Sentinel reliability before weight output")
+    parser.add_argument("--sentinel-weight-eps", type=float, default=1e-3,
+                        help="Small positive value added to both Sentinel weights")
+    parser.add_argument("--sentinel-window-s", type=float, default=4.0,
+                        help="Camera time window used for VLM progress checks")
+    parser.add_argument("--sentinel-max-frames", type=int, default=6,
+                        help="Maximum frames sampled into each Sentinel VLM image grid")
+    parser.add_argument("--sentinel-progress-max-age-s", type=float, default=8.0,
+                        help="Maximum age before a VLM progress result is considered stale")
+
     # RTC 开关（默认关闭，传 --rtc 则开启）
     parser.add_argument("--rtc", action="store_true", default=False,
                         help="开启 RTC（Real-Time Chunking）动作融合，动作更平滑")

@@ -1,0 +1,137 @@
+import tempfile
+import unittest
+from types import SimpleNamespace
+
+import numpy as np
+
+from important_code.shared_control.sentinel import (
+    ProgressMonitorResult,
+    SentinelFrameBuffer,
+    SentinelRuntime,
+)
+
+
+def _metrics(c_cbc=0.5):
+    return SimpleNamespace(c_cbc=c_cbc, jerk_max=0.0, boundary_jump_max=0.0)
+
+
+class SentinelFrameBufferTest(unittest.TestCase):
+    def test_push_observation_accepts_policy_image_keys(self):
+        buffer = SentinelFrameBuffer(max_age_s=8.0)
+        image = np.zeros((4, 4, 3), dtype=np.uint8)
+
+        buffer.push_observation(
+            {
+                "observation.images.wrist": image,
+                "observation.images.right": image + 1,
+            }
+        )
+
+        frames = buffer.sample_window(window_s=8.0, max_frames=6)
+        self.assertEqual(len(frames), 1)
+        self.assertIsNotNone(frames[0].wrist)
+        self.assertIsNotNone(frames[0].right)
+
+
+class SentinelRuntimeTest(unittest.TestCase):
+    def test_action_alarm_fires_on_low_consistency(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = SentinelRuntime(tau_action=0.4, log_dir=tmpdir)
+            fast = sentinel._fast_action(_metrics(c_cbc=0.2))
+            sentinel.stop()
+
+        self.assertTrue(fast.action_alarm)
+        self.assertEqual(fast.c_action, 0.2)
+
+    def test_reliability_uses_min_of_action_and_progress(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = SentinelRuntime(ema_beta=0.0, eps=0.001, log_dir=tmpdir)
+            fast = sentinel._fast_action(_metrics(c_cbc=0.9))
+            result = sentinel._arbitrate(
+                fast,
+                ProgressMonitorResult(
+                    timestamp=1.0,
+                    c_progress=0.1,
+                    alarm=True,
+                    stuck=True,
+                    progress_made=False,
+                    failure_likelihood=0.9,
+                    reason="stuck",
+                    latency_s=0.2,
+                ),
+            )
+            sentinel.stop()
+
+        self.assertAlmostEqual(result.r_raw, 0.1)
+        self.assertAlmostEqual(result.w_vla, 0.101)
+        self.assertAlmostEqual(result.w_human, 0.901)
+        self.assertTrue(result.sentinel_alarm)
+
+    def test_stale_progress_falls_back_to_action_consistency(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = SentinelRuntime(ema_beta=0.0, eps=0.001, log_dir=tmpdir)
+            fast = sentinel._fast_action(_metrics(c_cbc=0.7))
+            result = sentinel._arbitrate(
+                fast,
+                ProgressMonitorResult(
+                    timestamp=1.0,
+                    c_progress=None,
+                    alarm=False,
+                    stuck=False,
+                    progress_made=None,
+                    failure_likelihood=None,
+                    reason="",
+                    latency_s=0.0,
+                    stale=True,
+                    error="timeout",
+                ),
+            )
+            sentinel.stop()
+
+        self.assertAlmostEqual(result.r_raw, 0.7)
+        self.assertTrue(result.progress_stale)
+        self.assertFalse(result.progress_alarm)
+
+    def test_progress_alarm_requires_consecutive_failures(self):
+        image = np.zeros((8, 8, 3), dtype=np.uint8)
+        failing = [
+            ProgressMonitorResult(1.0, 0.1, False, True, False, 0.9, "stuck", 0.1),
+            ProgressMonitorResult(2.0, 0.1, False, True, False, 0.9, "stuck", 0.1),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = SentinelRuntime(
+                client=_FakeClient(failing),
+                required_alarm_count=2,
+                log_dir=tmpdir,
+            )
+            sentinel.frame_buffer.push(wrist=image, right=image)
+            first = sentinel._check_progress("prompt")
+            second = sentinel._check_progress("prompt")
+            sentinel.stop()
+
+        self.assertFalse(first.alarm)
+        self.assertTrue(second.alarm)
+        self.assertEqual(second.consecutive_alarm_count, 2)
+
+    def test_logger_writes_jsonl_and_csv(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = SentinelRuntime(ema_beta=0.0, log_dir=tmpdir)
+            sentinel.update(_metrics(c_cbc=0.5), extra={"chunk_latency_s": 0.01})
+            log_dir = sentinel.log_dir
+            sentinel.stop()
+
+            self.assertTrue((log_dir / "sentinel_events.jsonl").exists())
+            self.assertTrue((log_dir / "sentinel_events.csv").exists())
+
+
+class _FakeClient:
+    def __init__(self, results):
+        self.results = list(results)
+
+    def classify_progress(self, prompt, image_b64, timeout_s):
+        return self.results.pop(0)
+
+
+if __name__ == "__main__":
+    unittest.main()

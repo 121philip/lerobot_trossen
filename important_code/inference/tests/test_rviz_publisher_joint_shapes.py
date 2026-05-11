@@ -28,3 +28,10 @@ def test_predicted_chunk_requires_gripper_column():
         assert "Expected predicted chunk shape (N, 7)" in str(exc)
     else:
         raise AssertionError("predicted chunks without gripper must not be sent")
+
+
+def test_sentinel_weights_are_flat_non_negative_pair():
+    weights = rviz_publisher._normalize_weights(-0.2, 0.9)
+
+    assert weights.shape == (2,)
+    np.testing.assert_array_equal(weights, np.array([0.0, 0.9]))

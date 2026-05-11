@@ -38,6 +38,7 @@ from important_code.shared_control.confidence import (
     CBCConfidenceEstimator,
     compute_alpha,
 )
+from important_code.shared_control.sentinel import SentinelRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ def inference_thread_fn(
                          传入后每块推理完成后将预测动作发布到 /predicted/joint_states
                          不传（默认 None）则不启用可视化，不影响推理性能
     """
+    sentinel_runtime = None
     try:
         logger.info("[INFERENCE] Starting inference thread")
 
@@ -84,6 +86,9 @@ def inference_thread_fn(
             fps=control_fps,
             confidence_method=confidence_method,
         )
+        if getattr(args, "sentinel", False):
+            sentinel_runtime = SentinelRuntime.from_args(args)
+            sentinel_runtime.start()
 
         # RTC 模式：队列低于阈值时提前触发推理，保持队列充足
         # 非 RTC 模式：队列完全耗尽才触发（传统块执行方式）
@@ -149,6 +154,10 @@ def inference_thread_fn(
                 # inference_mode 会完全禁用 autograd 且无法被 enable_grad() 覆盖。
                 # print(raw_obs)
                 observation = robot_obs_to_policy_obs(raw_obs)
+                if sentinel_runtime is not None:
+                    # Sentinel slow monitor 只需要相机图像；这里把最近 wrist/right 帧缓存起来。
+                    # 这一步不调用云端 VLM，因此不会拖慢当前 action chunk 推理。
+                    sentinel_runtime.push_observation(observation)
                 with torch.no_grad():
                     obs_tensors = prepare_observation_for_inference(
                         copy(observation), DEVICE, task=args.task
@@ -206,6 +215,45 @@ def inference_thread_fn(
                 new_latency = time.perf_counter() - current_time
                 new_delay = math.ceil(new_latency / time_per_step)
                 latency_tracker.add(new_latency)
+                sentinel_result = None
+                if sentinel_runtime is not None:
+                    # 每个 action chunk 结束后做一次 fast arbitration：
+                    # - C_action 来自 confidence_metrics.c_cbc / jerk / boundary jump；
+                    # - C_progress 来自后台 VLM 最近一次结果；
+                    # - 输出直接是 eTaSL 权重 w_vla / w_human。
+                    sentinel_result = sentinel_runtime.update(
+                        confidence_metrics,
+                        extra={
+                            "chunk_latency_s": new_latency,
+                            "delay_steps": new_delay,
+                            "queue_size_before": queue_size_before,
+                            "confidence_method": confidence_method,
+                            "alpha": alpha,
+                        },
+                    )
+                    logger.info(
+                        "[SENTINEL] c_action=%.4f c_progress=%s "
+                        "r_raw=%.4f r=%.4f w_vla=%.4f w_human=%.4f "
+                        "alarm=%s progress_stale=%s vlm_latency=%s reason=%s",
+                        sentinel_result.c_action,
+                        (
+                            f"{sentinel_result.c_progress:.4f}"
+                            if sentinel_result.c_progress is not None
+                            else "None"
+                        ),
+                        sentinel_result.r_raw,
+                        sentinel_result.r_smooth,
+                        sentinel_result.w_vla,
+                        sentinel_result.w_human,
+                        sentinel_result.sentinel_alarm,
+                        sentinel_result.progress_stale,
+                        (
+                            f"{sentinel_result.vlm_latency_s:.3f}s"
+                            if sentinel_result.vlm_latency_s is not None
+                            else "None"
+                        ),
+                        sentinel_result.reason,
+                    )
 
                 # 参数合理性检查：queue_threshold 应大于 execution_horizon + delay
                 if args.rtc and args.queue_threshold < args.execution_horizon + new_delay:
@@ -219,6 +267,17 @@ def inference_thread_fn(
                     rviz_publisher.put_predicted(full_robot_chunk.cpu().numpy())
                     if hasattr(rviz_publisher, "put_alpha"):
                         rviz_publisher.put_alpha(alpha)
+                    if (
+                        sentinel_result is not None
+                        and not sentinel_runtime.log_only
+                        and hasattr(rviz_publisher, "put_weights")
+                    ):
+                        # 默认 log-only 时不会走到这里。
+                        # 只有显式 --no-sentinel-log-only 才把权重送到 CroSPI/eTaSL。
+                        rviz_publisher.put_weights(
+                            sentinel_result.w_vla,
+                            sentinel_result.w_human,
+                        )
 
                 # ── G. 写入动作队列 ──
                 # RTC 模式：merge 会按延迟替换队列，并配合 RTC 融合新旧 chunk。
@@ -270,3 +329,6 @@ def inference_thread_fn(
     except Exception as e:
         logger.error(f"[INFERENCE] Fatal error: {e}\n{traceback.format_exc()}")
         shutdown_event.set()   # 出错时广播关闭信号，避免其他线程空转
+    finally:
+        if sentinel_runtime is not None:
+            sentinel_runtime.stop()
