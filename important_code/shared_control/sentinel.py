@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 PROMPT_TEMPLATE = """Task: {task}.
 
 You are monitoring a robot manipulation rollout from recent camera frames.
+The task is picking the grape, so the robot should reach toward the grape, grasp it, and lift it up.
 Decide whether the robot is visibly making progress toward completing the task.
 
 Return JSON only:

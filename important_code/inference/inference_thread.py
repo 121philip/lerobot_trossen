@@ -19,11 +19,14 @@ RViz 集成（rviz_publisher 不为 None 时）：
   - 注意：推送的是后处理后的真实关节角（弧度/米），与实际执行单位一致，可直接比较
 """
 
+import csv
+import datetime
 import logging
 import math
 import time
 import traceback
 from copy import copy
+from pathlib import Path
 from threading import Event
 
 import torch
@@ -41,6 +44,64 @@ from important_code.shared_control.confidence import (
 from important_code.shared_control.sentinel import SentinelRuntime
 
 logger = logging.getLogger(__name__)
+
+
+def _save_sentinel_plot(records: list, log_dir: str) -> None:
+    """运行结束后将 Sentinel 指标保存为 CSV 和时序折线图。"""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    out = Path(log_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    csv_path = out / f"sentinel_metrics_{stamp}.csv"
+    fieldnames = ["t", "c_action", "c_progress", "r_raw", "r_smooth", "w_vla", "w_human"]
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(records)
+    logger.info("[SENTINEL] Saved CSV → %s", csv_path)
+
+    t          = [r["t"] for r in records]
+    c_action   = [r["c_action"] for r in records]
+    c_progress = [r["c_progress"] if r["c_progress"] is not None else float("nan") for r in records]
+    r_raw      = [r["r_raw"] for r in records]
+    r_smooth   = [r["r_smooth"] for r in records]
+    w_vla      = [r["w_vla"] for r in records]
+    w_human    = [r["w_human"] for r in records]
+
+    fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
+    fig.suptitle("Sentinel Metrics over Follower Runtime", fontsize=13)
+
+    axes[0].plot(t, c_action,   label="c_action",   color="steelblue")
+    axes[0].plot(t, c_progress, label="c_progress", color="darkorange", linestyle="--")
+    axes[0].set_ylabel("Confidence")
+    axes[0].set_ylim(-0.05, 1.1)
+    axes[0].legend(loc="upper right", fontsize=8)
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].plot(t, r_raw,    label="r_raw",    color="gray",   linestyle=":")
+    axes[1].plot(t, r_smooth, label="r_smooth", color="purple")
+    axes[1].set_ylabel("Reliability (r)")
+    axes[1].set_ylim(-0.05, 1.1)
+    axes[1].legend(loc="upper right", fontsize=8)
+    axes[1].grid(True, alpha=0.3)
+
+    axes[2].plot(t, w_vla,   label="w_vla",   color="royalblue")
+    axes[2].plot(t, w_human, label="w_human", color="tomato")
+    axes[2].set_ylabel("Weight")
+    axes[2].set_xlabel("Follower Runtime (s)")
+    axes[2].set_ylim(-0.05, 1.1)
+    axes[2].legend(loc="upper right", fontsize=8)
+    axes[2].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plot_path = out / f"sentinel_metrics_{stamp}.png"
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    logger.info("[SENTINEL] Saved plot  → %s", plot_path)
 
 
 def inference_thread_fn(
@@ -69,6 +130,8 @@ def inference_thread_fn(
                          不传（默认 None）则不启用可视化，不影响推理性能
     """
     sentinel_runtime = None
+    sentinel_records: list = []
+    _inference_start = time.perf_counter()
     try:
         logger.info("[INFERENCE] Starting inference thread")
 
@@ -195,11 +258,11 @@ def inference_thread_fn(
                     queued_robot_chunk = full_robot_chunk
                 else:
                     # n_action_steps = int(getattr(policy.config, "n_action_steps", len(full_robot_chunk)))  # 可以调整入队的动作步数，默认为整个块
-                    n_action_steps = 25
+                    n_action_steps = 25  # 注意，n_action_steps 可调！！！！
                     queued_original_chunk = full_original_chunk[:n_action_steps]
                     queued_robot_chunk = full_robot_chunk[:n_action_steps]
 
-                confidence_metrics = confidence_estimator.update(full_robot_chunk)  # 置信度计算需检查！！！
+                confidence_metrics = confidence_estimator.update(queued_robot_chunk)  # 置信度计算需检查！！！
                 alpha = compute_alpha(
                     confidence_metrics.c_cbc,
                     alpha_mode=alpha_mode,
@@ -267,6 +330,15 @@ def inference_thread_fn(
                         f"R={sentinel_result.r_smooth:.4f}",
                         flush=True,
                     )
+                    sentinel_records.append({
+                        "t":          time.perf_counter() - _inference_start,
+                        "c_action":   sentinel_result.c_action,
+                        "c_progress": sentinel_result.c_progress,
+                        "r_raw":      sentinel_result.r_raw,
+                        "r_smooth":   sentinel_result.r_smooth,
+                        "w_vla":      sentinel_result.w_vla,
+                        "w_human":    sentinel_result.w_human,
+                    })
 
                 # 参数合理性检查：queue_threshold 应大于 execution_horizon + delay
                 if args.rtc and args.queue_threshold < args.execution_horizon + new_delay:
@@ -345,3 +417,8 @@ def inference_thread_fn(
     finally:
         if sentinel_runtime is not None:
             sentinel_runtime.stop()
+        if sentinel_records:
+            _save_sentinel_plot(
+                sentinel_records,
+                getattr(args, "sentinel_log_dir", "outputs/sentinel"),
+            )
