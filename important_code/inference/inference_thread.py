@@ -181,14 +181,14 @@ def inference_thread_fn(
                 # 例如: torch.Size([1, chunk_size, 7]) → [批次=1, 未来动作步, 7个关节]
                 logger.debug("Raw chunk shape: %s", actions.shape)
                 logger.debug("Future base joint trajectory: %s", actions[0, :, 0].cpu().numpy())
-                print("Future base joint trajectory: %s", actions[0, :, 0].cpu().numpy())
+                # print("Future base joint trajectory: %s", actions[0, :, 0].cpu().numpy())
 
                 # ── F. 保存完整预测块 + 选择实际入队动作 ──
                 # full_original_chunk 保留归一化空间动作，RTC 融合需要它。
                 # full_robot_chunk 是反归一化后的机器人关节目标，用于执行和可视化。
                 full_original_chunk = actions.squeeze(0).clone()
                 full_robot_chunk = postprocessor(actions).squeeze(0)
-                print("POST Future base joint trajectory: %s", full_robot_chunk[:, 0].cpu().numpy())
+                # print("POST Future base joint trajectory: %s", full_robot_chunk[:, 0].cpu().numpy())
 
                 if args.rtc:
                     queued_original_chunk = full_original_chunk
