@@ -109,11 +109,13 @@ class ConfidenceEstimatorTest(unittest.TestCase):
 
     def test_tracking_mode_none_joints_returns_neutral(self):
         """c_tracking = 0.5 when actual_joints is None."""
+        import math
         estimator = ConfidenceEstimator(d=5, gamma=1.0, fps=30.0, confidence_method="tracking")
         estimator.update(linear_chunk(0.0, 1.0))
         metrics = estimator.update(linear_chunk(1.0, 2.0), actual_joints=None)
         self.assertAlmostEqual(metrics.c_tracking, 0.5)
         self.assertAlmostEqual(metrics.c_action, 0.5)
+        self.assertTrue(math.isnan(metrics.tracking_mse))
 
     def test_combined_mode_equals_geometric_mean(self):
         """c_action = sqrt(c_regression * c_tracking) for combined mode."""

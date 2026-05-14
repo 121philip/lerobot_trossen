@@ -166,7 +166,7 @@ class ConfidenceEstimator:
                 confidence_method=self.confidence_method,
                 cbc_raw_mse=0.0,
                 cbc_reg_residual=0.0,
-                tracking_mse=0.0,
+                tracking_mse=float("nan"),
                 speed_norm=0.0,
                 a_vi=instability.a_vi,
                 a_ai=instability.a_ai,
@@ -186,20 +186,22 @@ class ConfidenceEstimator:
                 f"prev={self.prev_chunk.shape}, curr={chunk.shape}"
             )
 
+        # Tracking error: compare actual joints to the predicted position delay_steps
+        # steps into the previous chunk (where the robot should be after that many steps).
         raw_mse = float(np.mean((tail - head) ** 2))
         reg_residual = self.compute_regression_residual(tail, head)
         speed_norm = self.compute_speed_norm(chunk)
         boundary_jump_max = float(np.max(np.abs(chunk[0] - self.prev_chunk[-1])))
 
         if actual_joints is not None:
-            idx = min(int(delay_steps), self.prev_chunk.shape[0] - 1)
+            idx = min(max(0, int(delay_steps)), self.prev_chunk.shape[0] - 1)
             predicted = self.prev_chunk[idx]
             tracking_mse = float(
                 np.mean((np.asarray(actual_joints, dtype=np.float64) - predicted) ** 2)
             )
             c_tracking = float(np.exp(-self.gamma * tracking_mse))
         else:
-            tracking_mse = 0.0
+            tracking_mse = float("nan")
             c_tracking = 0.5
 
         c_raw = float(np.exp(-self.gamma * raw_mse))
