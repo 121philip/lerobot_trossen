@@ -108,8 +108,11 @@ except ImportError as e:
     print("Requires lerobot >= 0.4.3 with RTC support.")
     sys.exit(1)
 
+import rerun as rr
+from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
+
 from important_code.utils import DEVICE, resolve_checkpoint_path
-from important_code.inference.robot_wrapper import RobotWrapper
+from important_code.inference.robot_wrapper import RobotWrapper, create_mock_observation
 from important_code.inference.inference_thread import inference_thread_fn
 from important_code.inference.actor_thread import actor_thread_fn
 from important_code.inference.rtc_runtime import (
@@ -180,6 +183,10 @@ def parse_args():
     parser.add_argument("--confidence-method", type=str, default="regression_cbc",
                         choices=["raw_cbc", "speed_norm_cbc", "regression_cbc"],
                         help="C_VLA method used as the primary confidence signal")
+    parser.add_argument("--sentinel-confidence-mode", type=str, default="combined",
+                        choices=["raw_cbc", "speed_norm_cbc", "regression_cbc", "tracking", "combined"],
+                        help="c_action mode: cbc modes measure boundary smoothness; "
+                             "tracking measures joint tracking error; combined = sqrt(regression * tracking).")
     parser.add_argument("--alpha-mode", type=str, default="constant",
                         choices=["constant", "confidence"],
                         help="Alpha source: fixed alpha_const or confidence-derived alpha")
@@ -196,7 +203,7 @@ def parse_args():
     parser.add_argument("--sentinel-log-only", action=argparse.BooleanOptionalAction, default=True,
                         help="Log Sentinel weights without publishing them to CroSPI/eTaSL")
     parser.add_argument("--sentinel-vlm-provider", type=str, default="openai",
-                        choices=["openai", "gemini"],
+                        choices=["openai", "gemini", "deepseek"],
                         help="Cloud VLM provider for Sentinel progress monitoring")
     parser.add_argument("--sentinel-vlm-model", type=str, default=None,
                         help="Cloud VLM model name; defaults to gpt-4o or gemini-3-flash-preview")
@@ -216,7 +223,7 @@ def parse_args():
                         help="VLM failure_likelihood threshold for raw progress alarms")
     parser.add_argument("--sentinel-progress-alarm-count", type=int, default=2,
                         help="Consecutive raw progress alarms required to trigger progress_alarm")
-    parser.add_argument("--sentinel-ema-beta", type=float, default=0.8,
+    parser.add_argument("--sentinel-ema-beta", type=float, default=0.6,
                         help="EMA beta for smoothing Sentinel reliability before weight output")
     parser.add_argument("--sentinel-weight-eps", type=float, default=1e-3,
                         help="Small positive value added to both Sentinel weights")
@@ -242,6 +249,10 @@ def parse_args():
     parser.add_argument("--queue-threshold", type=int, default=10,
                         help="RTC: 队列低于此值时触发新推理（默认: 10）")
 
+    # 可视化
+    parser.add_argument("--display-data", action="store_true",
+                        help="开启 Rerun 实时可视化（相机+关节+置信度），与 teleoperation 界面相同")
+
     # 调试
     parser.add_argument("--debug",          action="store_true",
                         help="开启 RTC 内置调试追踪")
@@ -255,12 +266,26 @@ def parse_args():
     return args
 
 
+def _rerun_log_thread_fn(robot_wrapper, shutdown_event, camera_fps):
+    """以 camera_fps Hz 读取相机和关节观测并写入 Rerun，实现实时监控。"""
+    interval = 1.0 / camera_fps
+    while not shutdown_event.is_set():
+        t0 = time.perf_counter()
+        raw_obs = robot_wrapper.get_observation() if robot_wrapper is not None else create_mock_observation()
+        log_rerun_data(observation=raw_obs)
+        elapsed = time.perf_counter() - t0
+        time.sleep(max(0.0, interval - elapsed))
+
+
 def main():
     args = parse_args()
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
     logger.info(f"Device: {DEVICE}")
     logger.info(f"RTC: {'开启' if args.rtc else '关闭（标准模式）'}")
+
+    if args.display_data:
+        init_rerun(session_name="inference")
 
     # ── 1. 加载策略模型 ──────────────────────────────────────────
     policy_path = resolve_checkpoint_path(args.train_dir)
@@ -375,6 +400,15 @@ def main():
         kwargs={"rviz_publisher": rviz_publisher},
         daemon=True, name="ActorThread",
     )
+    if args.display_data:
+        rerun_thread = Thread(
+            target=_rerun_log_thread_fn,
+            args=(robot_wrapper, shutdown_event, args.camera_fps),
+            daemon=True, name="RerunLogThread",
+        )
+        rerun_thread.start()
+        logger.info("Rerun log thread started at %s Hz.", args.camera_fps)
+
     inf_thread.start()
     act_thread.start()
     logger.info("Threads started.")
@@ -410,6 +444,9 @@ def main():
 
     # ── 7. 调试数据输出（仅 --debug 模式）───────────────────────
     maybe_plot_rtc_debug(policy, args)
+
+    if args.display_data:
+        rr.rerun_shutdown()
 
     logger.info("Done.")
 
