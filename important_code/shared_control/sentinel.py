@@ -248,6 +248,35 @@ class SentinelFrameBuffer:
         return _jpeg_b64(np.concatenate(rows, axis=0))
 
 
+class LocalMotionDetector:
+    """Estimates whether the robot is moving, used as stale c_progress fallback."""
+
+    def __init__(self, window_s: float = 3.0, stuck_threshold: float = 0.02) -> None:
+        self.window_s = float(window_s)
+        self.stuck_threshold = float(stuck_threshold)
+        self._history: deque[tuple[float, np.ndarray]] = deque()
+        self._lock = threading.Lock()
+
+    def push(self, joints: np.ndarray, t: float) -> None:
+        joints = np.asarray(joints, dtype=np.float64).copy()
+        with self._lock:
+            self._history.append((float(t), joints))
+            cutoff = t - self.window_s
+            while self._history and self._history[0][0] < cutoff:
+                self._history.popleft()
+
+    def c_progress_local(self) -> float:
+        with self._lock:
+            if len(self._history) < 2:
+                return 0.5
+            t_oldest, j_oldest = self._history[0]
+            t_newest, j_newest = self._history[-1]
+            if t_newest - t_oldest < 1.0:
+                return 0.5
+            displacement = float(np.max(np.abs(j_newest - j_oldest)))
+        return 0.2 if displacement < self.stuck_threshold else 0.5
+
+
 class CloudVLMClient:
     """Minimal OpenAI/Gemini client using urllib."""
 
@@ -410,6 +439,7 @@ class SentinelRuntime:
         self._thread: threading.Thread | None = None
         self._consecutive_failures = 0
         self._r_smooth: float | None = None
+        self._motion_detector = LocalMotionDetector()
 
         # 每次实验创建一个时间戳目录，便于论文统计 VLM latency、报警和权重曲线。
         self.log_dir = Path(log_dir) / time.strftime("%Y%m%d-%H%M%S")
@@ -468,11 +498,18 @@ class SentinelRuntime:
         # inference_thread 在 policy preprocess 前后都能调用；这里只取 wrist/right 图像。
         self.frame_buffer.push_observation(observation)
 
-    def update(self, confidence_metrics: Any, extra: dict[str, Any] | None = None) -> SentinelArbitrationResult:
+    def update(
+        self,
+        confidence_metrics: Any,
+        actual_joints: np.ndarray | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> SentinelArbitrationResult:
         # 每个 action chunk 调一次：
         # 1. 从本地 metrics 算 C_action；
         # 2. 读取最近一次 VLM 的 C_progress；
         # 3. 融合成 w_vla/w_human 并写日志。
+        if actual_joints is not None:
+            self._motion_detector.push(actual_joints, time.time())
         result = self._arbitrate(self._fast_action(confidence_metrics), self._fresh_progress())
         self._log(result, extra or {})
         return result
@@ -480,7 +517,7 @@ class SentinelRuntime:
     def _fast_action(self, metrics: Any) -> FastActionResult:
         # C_action 当前直接复用 metrics.c_cbc，默认是 Regression-CBC。
         # 额外的 jerk/boundary_jump 阈值只负责触发 action_alarm，不直接改 C_action。
-        c_action = _clip01(metrics.c_cbc)
+        c_action = _clip01(metrics.c_action)
         reasons = []
         if c_action < self.tau_action:
             reasons.append(f"c_action<{self.tau_action:.3f}")
@@ -513,7 +550,11 @@ class SentinelRuntime:
         progress_ok = progress is not None and not progress.stale and progress.c_progress is not None
         c_progress = progress.c_progress if progress_ok else None
         progress_alarm = bool(progress.alarm) if progress_ok else False
-        r_raw = _clip01(min(fast.c_action, c_progress) if c_progress is not None else fast.c_action)
+        if c_progress is not None:
+            r_raw = _clip01(min(fast.c_action, c_progress))
+        else:
+            c_fallback = self._motion_detector.c_progress_local()
+            r_raw = _clip01(min(fast.c_action, c_fallback))
         # EMA 平滑，避免一次 VLM 判断抖动导致 eTaSL 权重瞬间跳变。
         self._r_smooth = r_raw if self._r_smooth is None else self.ema_beta * self._r_smooth + (1 - self.ema_beta) * r_raw
         r = _clip01(self._r_smooth)

@@ -1,18 +1,20 @@
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 
 import numpy as np
 
 from important_code.shared_control.sentinel import (
+    LocalMotionDetector,
     ProgressMonitorResult,
     SentinelFrameBuffer,
     SentinelRuntime,
 )
 
 
-def _metrics(c_cbc=0.5):
-    return SimpleNamespace(c_cbc=c_cbc, jerk_max=0.0, boundary_jump_max=0.0)
+def _metrics(c_action=0.5):
+    return SimpleNamespace(c_action=c_action, jerk_max=0.0, boundary_jump_max=0.0)
 
 
 class SentinelFrameBufferTest(unittest.TestCase):
@@ -37,7 +39,7 @@ class SentinelRuntimeTest(unittest.TestCase):
     def test_action_alarm_fires_on_low_consistency(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             sentinel = SentinelRuntime(tau_action=0.4, log_dir=tmpdir)
-            fast = sentinel._fast_action(_metrics(c_cbc=0.2))
+            fast = sentinel._fast_action(_metrics(c_action=0.2))
             sentinel.stop()
 
         self.assertTrue(fast.action_alarm)
@@ -46,7 +48,7 @@ class SentinelRuntimeTest(unittest.TestCase):
     def test_reliability_uses_min_of_action_and_progress(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             sentinel = SentinelRuntime(ema_beta=0.0, eps=0.001, log_dir=tmpdir)
-            fast = sentinel._fast_action(_metrics(c_cbc=0.9))
+            fast = sentinel._fast_action(_metrics(c_action=0.9))
             result = sentinel._arbitrate(
                 fast,
                 ProgressMonitorResult(
@@ -70,7 +72,7 @@ class SentinelRuntimeTest(unittest.TestCase):
     def test_stale_progress_falls_back_to_action_consistency(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             sentinel = SentinelRuntime(ema_beta=0.0, eps=0.001, log_dir=tmpdir)
-            fast = sentinel._fast_action(_metrics(c_cbc=0.7))
+            fast = sentinel._fast_action(_metrics(c_action=0.7))
             result = sentinel._arbitrate(
                 fast,
                 ProgressMonitorResult(
@@ -88,7 +90,7 @@ class SentinelRuntimeTest(unittest.TestCase):
             )
             sentinel.stop()
 
-        self.assertAlmostEqual(result.r_raw, 0.7)
+        self.assertAlmostEqual(result.r_raw, 0.5)
         self.assertTrue(result.progress_stale)
         self.assertFalse(result.progress_alarm)
 
@@ -117,7 +119,7 @@ class SentinelRuntimeTest(unittest.TestCase):
     def test_logger_writes_jsonl_and_csv(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             sentinel = SentinelRuntime(ema_beta=0.0, log_dir=tmpdir)
-            sentinel.update(_metrics(c_cbc=0.5), extra={"chunk_latency_s": 0.01})
+            sentinel.update(_metrics(c_action=0.5), extra={"chunk_latency_s": 0.01})
             log_dir = sentinel.log_dir
             sentinel.stop()
 
@@ -131,6 +133,57 @@ class _FakeClient:
 
     def classify_progress(self, prompt, image_b64, timeout_s):
         return self.results.pop(0)
+
+
+class LocalMotionDetectorTest(unittest.TestCase):
+    def test_insufficient_data_returns_neutral(self):
+        det = LocalMotionDetector(window_s=3.0, stuck_threshold=0.02)
+        det.push(np.zeros(7), time.time())
+        self.assertAlmostEqual(det.c_progress_local(), 0.5)
+
+    def test_stuck_returns_low_confidence(self):
+        det = LocalMotionDetector(window_s=3.0, stuck_threshold=0.02)
+        t = time.time()
+        for i in range(8):
+            det.push(np.zeros(7), t + i * 0.4)  # 3.2 s span, no movement
+        self.assertAlmostEqual(det.c_progress_local(), 0.2)
+
+    def test_moving_returns_mid_confidence(self):
+        det = LocalMotionDetector(window_s=3.0, stuck_threshold=0.02)
+        t = time.time()
+        for i in range(8):
+            det.push(np.array([0.1 * i, 0, 0, 0, 0, 0, 0]), t + i * 0.4)
+        self.assertAlmostEqual(det.c_progress_local(), 0.5)
+
+
+class SentinelStaleCapTest(unittest.TestCase):
+    def test_stale_fallback_caps_r_raw_when_moving(self):
+        """r_raw <= 0.5 when c_progress is None (stale) and robot is moving."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = SentinelRuntime(ema_beta=0.0, eps=0.0, log_dir=tmpdir)
+            t = time.time()
+            for i in range(8):
+                sentinel._motion_detector.push(
+                    np.array([0.1 * i, 0, 0, 0, 0, 0, 0]), t + i * 0.4
+                )
+            fast = sentinel._fast_action(_metrics(c_action=1.0))
+            result = sentinel._arbitrate(fast, None)   # None -> stale path
+            sentinel.stop()
+
+        self.assertLessEqual(result.r_raw, 0.5)
+
+    def test_stale_fallback_lower_when_stuck(self):
+        """r_raw <= 0.2 when stale and robot is stuck."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = SentinelRuntime(ema_beta=0.0, eps=0.0, log_dir=tmpdir)
+            t = time.time()
+            for i in range(8):
+                sentinel._motion_detector.push(np.zeros(7), t + i * 0.4)
+            fast = sentinel._fast_action(_metrics(c_action=1.0))
+            result = sentinel._arbitrate(fast, None)
+            sentinel.stop()
+
+        self.assertLessEqual(result.r_raw, 0.2)
 
 
 if __name__ == "__main__":
