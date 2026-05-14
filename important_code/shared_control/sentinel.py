@@ -392,7 +392,8 @@ class CloudVLMClient:
             {"Authorization": f"Bearer {self.api_key}"},
             timeout_s,
         )
-        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        choices = data.get("choices") or []
+        text = choices[0].get("message", {}).get("content", "") if choices else ""
         if not text:
             raise ValueError("DeepSeek response did not contain text")
         return text
