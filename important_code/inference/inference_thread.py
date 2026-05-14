@@ -29,6 +29,7 @@ from copy import copy
 from pathlib import Path
 from threading import Event
 
+import rerun as rr
 import torch
 
 from lerobot.policies.utils import prepare_observation_for_inference
@@ -38,7 +39,7 @@ from lerobot.policies.rtc.latency_tracker import LatencyTracker
 from important_code.utils import DEVICE, JOINT_NAMES, get_control_fps
 from important_code.inference.robot_wrapper import create_mock_observation, robot_obs_to_policy_obs
 from important_code.shared_control.confidence import (
-    CBCConfidenceEstimator,
+    ConfidenceEstimator,
     compute_alpha,
 )
 from important_code.shared_control.sentinel import SentinelRuntime
@@ -138,12 +139,15 @@ def inference_thread_fn(
         latency_tracker = LatencyTracker()   # 维护历史推理延迟的滑动窗口
         control_fps = get_control_fps(args)
         time_per_step = 1.0 / control_fps    # 控制/策略时间步（秒）
-        confidence_method = getattr(args, "confidence_method", "regression_cbc")
+        confidence_method = getattr(
+            args, "sentinel_confidence_mode",
+            getattr(args, "confidence_method", "combined"),
+        )
         alpha_mode = getattr(args, "alpha_mode", "constant")
         alpha_const = float(getattr(args, "alpha_const", 0.5))
         alpha_tau_c = float(getattr(args, "alpha_tau_c", 0.4))
         alpha_k_c = float(getattr(args, "alpha_k_c", 8.0))
-        confidence_estimator = CBCConfidenceEstimator(
+        confidence_estimator = ConfidenceEstimator(
             d=5,
             gamma=1.0,
             fps=control_fps,
@@ -211,6 +215,8 @@ def inference_thread_fn(
                         for i, name in enumerate(JOINT_NAMES):
                             raw_obs[f"{name}.pos"] = float(bridge_joints[i])
 
+                actual_joints = rviz_publisher.get_latest_joints() if rviz_publisher is not None else None
+
                 # ── D. 预处理观测（在 no_grad 下进行）──
                 # 注意：必须用 no_grad() 而不是 inference_mode()！
                 # RTC 的 denoise_step 内部调用 enable_grad() + autograd.grad() 进行梯度引导，
@@ -262,9 +268,13 @@ def inference_thread_fn(
                     queued_original_chunk = full_original_chunk[:n_action_steps]
                     queued_robot_chunk = full_robot_chunk[:n_action_steps]
 
-                confidence_metrics = confidence_estimator.update(queued_robot_chunk)  # 置信度计算需检查！！！
+                confidence_metrics = confidence_estimator.update(
+                    queued_robot_chunk,
+                    actual_joints=actual_joints,
+                    delay_steps=inference_delay,
+                )
                 alpha = compute_alpha(
-                    confidence_metrics.c_cbc,
+                    confidence_metrics.c_action,
                     alpha_mode=alpha_mode,
                     alpha_const=alpha_const,
                     tau_c=alpha_tau_c,
@@ -281,11 +291,12 @@ def inference_thread_fn(
                 sentinel_result = None
                 if sentinel_runtime is not None:
                     # 每个 action chunk 结束后做一次 fast arbitration：
-                    # - C_action 来自 confidence_metrics.c_cbc / jerk / boundary jump；
+                    # - C_action 来自 confidence_metrics.c_action / jerk / boundary jump；
                     # - C_progress 来自后台 VLM 最近一次结果；
                     # - 输出直接是 eTaSL 权重 w_vla / w_human。
                     sentinel_result = sentinel_runtime.update(
                         confidence_metrics,
+                        actual_joints=actual_joints,
                         extra={
                             "chunk_latency_s": new_latency,
                             "delay_steps": new_delay,
@@ -364,6 +375,18 @@ def inference_thread_fn(
                             sentinel_result.w_human,
                         )
 
+                if getattr(args, "display_data", False):
+                    rr.log("inference/c_action",   rr.Scalars(confidence_metrics.c_action))
+                    rr.log("inference/alpha",       rr.Scalars(alpha))
+                    rr.log("inference/jerk_max",    rr.Scalars(jerk_max))
+                    rr.log("inference/latency_ms",  rr.Scalars(new_latency * 1000.0))
+                    rr.log("inference/queue_size",  rr.Scalars(float(action_queue.qsize())))
+                    if sentinel_result is not None:
+                        rr.log("sentinel/w_vla",    rr.Scalars(sentinel_result.w_vla))
+                        rr.log("sentinel/w_human",  rr.Scalars(sentinel_result.w_human))
+                        if sentinel_result.c_progress is not None:
+                            rr.log("sentinel/c_progress", rr.Scalars(sentinel_result.c_progress))
+
                 # ── G. 写入动作队列 ──
                 # RTC 模式：merge 会按延迟替换队列，并配合 RTC 融合新旧 chunk。
                 # 非 RTC 模式：merge 只是追加 queued chunk；这里 queued chunk 已截断到 n_action_steps。
@@ -380,7 +403,7 @@ def inference_thread_fn(
                     "[INFERENCE] Chunk in %.3fs "
                     "(delay=%s, queue_before=%s, queue_after=%s, idle_gap_ms=%.1f, "
                     "alpha=%.4f, alpha_mode=%s, confidence_method=%s, "
-                    "c_vla=%.4f, c_raw=%.4f, c_speed_norm=%.4f, c_regression=%.4f, "
+                    "c_action=%.4f, c_raw=%.4f, c_speed_norm=%.4f, c_regression=%.4f, "
                     "cbc_raw_mse=%.6f, cbc_reg_residual=%.6f, "
                     "a_vi=%.6f, a_ai=%.6f, jerk=%.6f, "
                     "vel_max=%.4f, accel_max=%.4f, jerk_max=%.4f, boundary_jump_max=%.4f)",
@@ -392,7 +415,7 @@ def inference_thread_fn(
                     alpha,
                     alpha_mode,
                     confidence_method,
-                    confidence_metrics.c_cbc,
+                    confidence_metrics.c_action,
                     confidence_metrics.c_raw,
                     confidence_metrics.c_speed_norm,
                     confidence_metrics.c_regression,
