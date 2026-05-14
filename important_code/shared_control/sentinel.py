@@ -515,7 +515,7 @@ class SentinelRuntime:
         return result
 
     def _fast_action(self, metrics: Any) -> FastActionResult:
-        # C_action 当前直接复用 metrics.c_cbc，默认是 Regression-CBC。
+        # C_action 来自 confidence_estimator.update()，模式由 --sentinel-confidence-mode 控制。
         # 额外的 jerk/boundary_jump 阈值只负责触发 action_alarm，不直接改 C_action。
         c_action = _clip01(metrics.c_action)
         reasons = []
