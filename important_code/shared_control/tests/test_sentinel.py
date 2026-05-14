@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from important_code.shared_control.sentinel import (
+    CloudVLMClient,
     LocalMotionDetector,
     ProgressMonitorResult,
     SentinelFrameBuffer,
@@ -184,6 +185,20 @@ class SentinelStaleCapTest(unittest.TestCase):
             sentinel.stop()
 
         self.assertLessEqual(result.r_raw, 0.2)
+
+
+class CloudVLMClientTest(unittest.TestCase):
+    def test_deepseek_missing_key_returns_stale(self):
+        client = CloudVLMClient(provider="deepseek", model="deepseek-chat", api_key="")
+        result = client.classify_progress("test", "fake_b64", timeout_s=1.0)
+        self.assertTrue(result.stale)
+        self.assertIn("Missing API key", result.error)
+
+    def test_openai_missing_key_returns_stale(self):
+        client = CloudVLMClient(provider="openai", model="gpt-4o", api_key="")
+        result = client.classify_progress("test", "fake_b64", timeout_s=1.0)
+        self.assertTrue(result.stale)
+        self.assertIn("Missing API key", result.error)
 
 
 if __name__ == "__main__":

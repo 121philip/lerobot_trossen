@@ -42,7 +42,7 @@ Return JSON only:
 {{
   "progress_made": true/false,
   "stuck": true/false,
-  "failure_likelihood": 0.0-1.0,
+  "failure_likelihood": <float 0.00-1.00; use fine-grained values like 0.23 or 0.71, NOT just 0.1/0.5/0.9>,
   "reason": "short explanation"
 }}
 """
@@ -283,7 +283,9 @@ class CloudVLMClient:
     def __init__(self, provider: str, model: str, api_key: str | None = None) -> None:
         self.provider = provider.lower()
         self.model = model
-        env_name = "OPENAI_API_KEY" if self.provider == "openai" else "GEMINI_API_KEY"
+        env_name = {"openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY", "deepseek": "DEEPSEEK_API_KEY"}.get(
+            self.provider, "OPENAI_API_KEY"
+        )
         self.api_key = api_key or os.environ.get(env_name)
 
     def classify_progress(self, prompt: str, image_b64: str, timeout_s: float) -> ProgressMonitorResult:
@@ -293,11 +295,12 @@ class CloudVLMClient:
         try:
             if not self.api_key:
                 raise RuntimeError(f"Missing API key for {self.provider}")
-            text = (
-                self._call_gemini(prompt, image_b64, timeout_s)
-                if self.provider == "gemini"
-                else self._call_openai(prompt, image_b64, timeout_s)
-            )
+            if self.provider == "gemini":
+                text = self._call_gemini(prompt, image_b64, timeout_s)
+            elif self.provider == "deepseek":
+                text = self._call_deepseek(prompt, image_b64, timeout_s)
+            else:
+                text = self._call_openai(prompt, image_b64, timeout_s)
             parsed = _json_object(text)
             failure = _clip01(parsed.get("failure_likelihood", 1.0))
             # 论文里的 progress score：
@@ -369,6 +372,30 @@ class CloudVLMClient:
         if not texts:
             raise ValueError("Gemini response did not contain text")
         return "\n".join(texts)
+
+    def _call_deepseek(self, prompt: str, image_b64: str, timeout_s: float) -> str:
+        # DeepSeek uses OpenAI-compatible Chat Completions API with vision.
+        data = self._post_json(
+            "https://api.deepseek.com/v1/chat/completions",
+            {
+                "model": self.model,
+                "temperature": 0,
+                "max_tokens": 300,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                        {"type": "text", "text": prompt},
+                    ],
+                }],
+            },
+            {"Authorization": f"Bearer {self.api_key}"},
+            timeout_s,
+        )
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not text:
+            raise ValueError("DeepSeek response did not contain text")
+        return text
 
     @staticmethod
     def _post_json(url: str, body: dict[str, Any], headers: dict[str, str], timeout_s: float) -> dict[str, Any]:
@@ -453,7 +480,12 @@ class SentinelRuntime:
         provider = getattr(args, "sentinel_vlm_provider", "openai")
         model = getattr(args, "sentinel_vlm_model", None)
         if not model:
-            model = "gpt-4o" if provider == "openai" else "gemini-3-flash-preview"
+            if provider == "openai":
+                model = "gpt-4o"
+            elif provider == "gemini":
+                model = "gemini-3-flash-preview"
+            else:
+                model = "deepseek-chat"
         return cls(
             task=getattr(args, "task", "pick the grape"),
             provider=provider,
