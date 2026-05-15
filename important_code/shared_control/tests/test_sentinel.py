@@ -273,5 +273,50 @@ class SentinelArbitrationResultFieldsTest(unittest.TestCase):
         self.assertIn("c_vlm", fields)
 
 
+class SentinelDecayIntegrationTest(unittest.TestCase):
+    def test_c_progress_is_float_in_result(self):
+        """c_progress 始终是 float，不再是 None。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = SentinelRuntime(ema_beta=0.0, eps=0.0, log_dir=tmpdir)
+            result = sentinel.update(_metrics(c_action=0.8))
+            sentinel.stop()
+        self.assertIsInstance(result.c_progress, float)
+
+    def test_stuck_robot_lowers_c_progress(self):
+        """向 sentinel 推送卡住的关节，c_progress 应低于 1.0。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = SentinelRuntime(ema_beta=0.0, eps=0.0, log_dir=tmpdir)
+            t = time.time()
+            for i in range(8):
+                sentinel._progress_decay.push(np.zeros(7), t + i * 0.4)
+            stuck_since = sentinel._progress_decay._stuck_since
+            if stuck_since is not None:
+                c = sentinel._progress_decay.c_progress(stuck_since + 30)
+                self.assertLess(c, 1.0)
+                self.assertGreaterEqual(c, 0.2)
+            sentinel.stop()
+
+    def test_vlm_result_stored_in_c_vlm(self):
+        """VLM 有效结果存入 c_vlm，不影响 c_progress。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = SentinelRuntime(ema_beta=0.0, eps=0.0, log_dir=tmpdir)
+            fast = sentinel._fast_action(_metrics(c_action=0.9))
+            vlm_progress = ProgressMonitorResult(
+                timestamp=time.time(),
+                c_progress=0.1,
+                alarm=False,
+                stuck=False,
+                progress_made=True,
+                failure_likelihood=0.9,
+                reason="test",
+                latency_s=0.1,
+            )
+            result = sentinel._arbitrate(fast, vlm_progress)
+            sentinel.stop()
+        self.assertAlmostEqual(result.c_vlm, 0.1, places=3)
+        self.assertIsInstance(result.c_progress, float)
+        self.assertNotAlmostEqual(result.c_progress, 0.1, places=3)
+
+
 if __name__ == "__main__":
     unittest.main()

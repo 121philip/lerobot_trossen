@@ -486,6 +486,7 @@ class SentinelRuntime:
         tau_action: float = 0.4,
         jerk_max: float | None = None,
         boundary_jump_max: float | None = None,
+        decay_lambda: float = 0.05,
         ema_beta: float = 0.8,
         eps: float = 1e-3,
         client: CloudVLMClient | None = None,
@@ -510,6 +511,7 @@ class SentinelRuntime:
         self.tau_action = float(tau_action)
         self.jerk_max = jerk_max
         self.boundary_jump_max = boundary_jump_max
+        self.decay_lambda = float(decay_lambda)
         self.ema_beta = float(ema_beta)
         self.eps = float(eps)
 
@@ -519,7 +521,7 @@ class SentinelRuntime:
         self._thread: threading.Thread | None = None
         self._consecutive_failures = 0
         self._r_smooth: float | None = None
-        self._motion_detector = LocalMotionDetector()
+        self._progress_decay = ProgressDecayMonitor(decay_lambda=self.decay_lambda)
 
         # 每次实验创建一个时间戳目录，便于论文统计 VLM latency、报警和权重曲线。
         self.log_dir = Path(log_dir) / time.strftime("%Y%m%d-%H%M%S")
@@ -555,6 +557,7 @@ class SentinelRuntime:
             tau_action=float(getattr(args, "sentinel_action_tau", 0.4)),
             jerk_max=_maybe_float(getattr(args, "sentinel_jerk_max", None)),
             boundary_jump_max=_maybe_float(getattr(args, "sentinel_boundary_jump_max", None)),
+            decay_lambda=float(getattr(args, "sentinel_decay_lambda", 0.05)),
             ema_beta=float(getattr(args, "sentinel_ema_beta", 0.8)),
             eps=float(getattr(args, "sentinel_weight_eps", 1e-3)),
         )
@@ -594,7 +597,7 @@ class SentinelRuntime:
         # 2. 读取最近一次 VLM 的 C_progress；
         # 3. 融合成 w_vla/w_human 并写日志。
         if actual_joints is not None:
-            self._motion_detector.push(actual_joints, time.time())
+            self._progress_decay.push(actual_joints, time.time())
         result = self._arbitrate(self._fast_action(confidence_metrics), self._fresh_progress())
         self._log(result, extra or {})
         return result
@@ -628,38 +631,37 @@ class SentinelRuntime:
         fast: FastActionResult,
         progress: ProgressMonitorResult | None,
     ) -> SentinelArbitrationResult:
-        # 核心仲裁公式：
-        #   如果 VLM 结果新鲜：R_raw = min(C_action, C_progress)
-        #   如果 VLM 结果 stale：R_raw = C_action
-        # 取 min 的原因：动作平滑和任务进展必须同时成立，VLA 才算可靠。
+        # c_progress 来自 ProgressDecayMonitor：机器人卡住后指数衰减到 floor。
+        # c_vlm 保留 VLM 原始输出，仅记录，不参与仲裁公式。
+        now = time.time()
+        c_progress = self._progress_decay.c_progress(now)
+        r_raw = _clip01(min(fast.c_action, c_progress))
+
         progress_ok = progress is not None and not progress.stale and progress.c_progress is not None
-        c_progress = progress.c_progress if progress_ok else None
+        c_vlm = progress.c_progress if progress_ok else None
         progress_alarm = bool(progress.alarm) if progress_ok else False
-        if c_progress is not None:
-            r_raw = _clip01(min(fast.c_action, c_progress))
-        else:
-            c_fallback = self._motion_detector.c_progress_local()
-            r_raw = _clip01(min(fast.c_action, c_fallback))
-        # EMA 平滑，避免一次 VLM 判断抖动导致 eTaSL 权重瞬间跳变。
-        self._r_smooth = r_raw if self._r_smooth is None else self.ema_beta * self._r_smooth + (1 - self.ema_beta) * r_raw
+
+        self._r_smooth = (
+            r_raw if self._r_smooth is None
+            else self.ema_beta * self._r_smooth + (1 - self.ema_beta) * r_raw
+        )
         r = _clip01(self._r_smooth)
 
         reason = f"action={fast.reason}"
         if progress is not None:
-            reason += f" | progress_error={progress.error}" if progress.error else f" | progress={progress.reason}"
+            reason += f" | vlm_error={progress.error}" if progress.error else f" | vlm={progress.reason}"
 
         return SentinelArbitrationResult(
-            timestamp=time.time(),
+            timestamp=now,
             c_action=fast.c_action,
             action_alarm=fast.action_alarm,
             c_progress=c_progress,
+            c_vlm=c_vlm,
             progress_alarm=progress_alarm,
             progress_stale=not progress_ok,
             sentinel_alarm=fast.action_alarm or progress_alarm,
             r_raw=r_raw,
             r_smooth=r,
-            # 直接输出 eTaSL 权重，不再绕 alpha。
-            # eps 防止某个 soft constraint 权重严格为 0。
             w_vla=r + self.eps,
             w_human=1.0 - r + self.eps,
             reason=reason,
