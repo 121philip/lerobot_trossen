@@ -58,7 +58,7 @@ def _save_sentinel_plot(records: list, log_dir: str) -> None:
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     csv_path = out / f"sentinel_metrics_{stamp}.csv"
-    fieldnames = ["t", "c_action", "c_progress", "r_raw", "r_smooth", "w_vla", "w_human"]
+    fieldnames = ["t", "c_action", "c_progress", "c_vlm", "r_raw", "r_smooth", "w_vla", "w_human"]
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -67,7 +67,8 @@ def _save_sentinel_plot(records: list, log_dir: str) -> None:
 
     t          = [r["t"] for r in records]
     c_action   = [r["c_action"] for r in records]
-    c_progress = [r["c_progress"] if r["c_progress"] is not None else float("nan") for r in records]
+    c_progress = [r["c_progress"] for r in records]
+    c_vlm      = [r.get("c_vlm") if r.get("c_vlm") is not None else float("nan") for r in records]
     r_raw      = [r["r_raw"] for r in records]
     r_smooth   = [r["r_smooth"] for r in records]
     w_vla      = [r["w_vla"] for r in records]
@@ -78,6 +79,7 @@ def _save_sentinel_plot(records: list, log_dir: str) -> None:
 
     axes[0].plot(t, c_action,   label="c_action",   color="steelblue")
     axes[0].plot(t, c_progress, label="c_progress", color="darkorange", linestyle="--")
+    axes[0].plot(t, c_vlm,      label="c_vlm",      color="green",      linestyle=":", alpha=0.6)
     axes[0].set_ylabel("Confidence")
     axes[0].set_ylim(-0.05, 1.1)
     axes[0].legend(loc="upper right", fontsize=8)
@@ -264,7 +266,7 @@ def inference_thread_fn(
                     queued_robot_chunk = full_robot_chunk
                 else:
                     # n_action_steps = int(getattr(policy.config, "n_action_steps", len(full_robot_chunk)))  # 可以调整入队的动作步数，默认为整个块
-                    n_action_steps = 25  # 注意，n_action_steps 可调！！！！
+                    n_action_steps = 10  # 注意，n_action_steps 可调！！！！
                     queued_original_chunk = full_original_chunk[:n_action_steps]
                     queued_robot_chunk = full_robot_chunk[:n_action_steps]
 
@@ -306,37 +308,27 @@ def inference_thread_fn(
                         },
                     )
                     logger.info(
-                        "[SENTINEL] c_action=%.4f c_progress=%s "
+                        "[SENTINEL] c_action=%.4f c_progress=%.4f c_vlm=%s "
                         "r_raw=%.4f r=%.4f w_vla=%.4f w_human=%.4f "
                         "alarm=%s progress_stale=%s vlm_latency=%s reason=%s",
                         sentinel_result.c_action,
-                        (
-                            f"{sentinel_result.c_progress:.4f}"
-                            if sentinel_result.c_progress is not None
-                            else "None"
-                        ),
+                        sentinel_result.c_progress,
+                        f"{sentinel_result.c_vlm:.4f}" if sentinel_result.c_vlm is not None else "None",
                         sentinel_result.r_raw,
                         sentinel_result.r_smooth,
                         sentinel_result.w_vla,
                         sentinel_result.w_human,
                         sentinel_result.sentinel_alarm,
                         sentinel_result.progress_stale,
-                        (
-                            f"{sentinel_result.vlm_latency_s:.3f}s"
-                            if sentinel_result.vlm_latency_s is not None
-                            else "None"
-                        ),
+                        f"{sentinel_result.vlm_latency_s:.3f}s" if sentinel_result.vlm_latency_s is not None else "None",
                         sentinel_result.reason,
                     )
-                    c_progress_text = (
-                        f"{sentinel_result.c_progress:.4f}"
-                        if sentinel_result.c_progress is not None
-                        else "None"
-                    )
+                    c_vlm_text = f"{sentinel_result.c_vlm:.4f}" if sentinel_result.c_vlm is not None else "None"
                     print(
                         "[SENTINEL_VALUES] "
                         f"C_action={sentinel_result.c_action:.4f} "
-                        f"C_progress={c_progress_text} "
+                        f"C_progress={sentinel_result.c_progress:.4f} "
+                        f"C_VLM={c_vlm_text} "
                         f"R_raw={sentinel_result.r_raw:.4f} "
                         f"R={sentinel_result.r_smooth:.4f}",
                         flush=True,
@@ -345,6 +337,7 @@ def inference_thread_fn(
                         "t":          time.perf_counter() - _inference_start,
                         "c_action":   sentinel_result.c_action,
                         "c_progress": sentinel_result.c_progress,
+                        "c_vlm":      sentinel_result.c_vlm,
                         "r_raw":      sentinel_result.r_raw,
                         "r_smooth":   sentinel_result.r_smooth,
                         "w_vla":      sentinel_result.w_vla,
@@ -384,8 +377,9 @@ def inference_thread_fn(
                     if sentinel_result is not None:
                         rr.log("sentinel/w_vla",    rr.Scalars(sentinel_result.w_vla))
                         rr.log("sentinel/w_human",  rr.Scalars(sentinel_result.w_human))
-                        if sentinel_result.c_progress is not None:
-                            rr.log("sentinel/c_progress", rr.Scalars(sentinel_result.c_progress))
+                        rr.log("sentinel/c_progress", rr.Scalars(sentinel_result.c_progress))
+                        if sentinel_result.c_vlm is not None:
+                            rr.log("sentinel/c_vlm", rr.Scalars(sentinel_result.c_vlm))
 
                 # ── G. 写入动作队列 ──
                 # RTC 模式：merge 会按延迟替换队列，并配合 RTC 融合新旧 chunk。
