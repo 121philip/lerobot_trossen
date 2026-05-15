@@ -290,10 +290,10 @@ class SentinelDecayIntegrationTest(unittest.TestCase):
             for i in range(8):
                 sentinel._progress_decay.push(np.zeros(7), t + i * 0.4)
             stuck_since = sentinel._progress_decay._stuck_since
-            if stuck_since is not None:
-                c = sentinel._progress_decay.c_progress(stuck_since + 30)
-                self.assertLess(c, 1.0)
-                self.assertGreaterEqual(c, 0.2)
+            self.assertIsNotNone(stuck_since, "stuck detection should have fired after 8 zero-joint pushes spanning >1s")
+            c = sentinel._progress_decay.c_progress(stuck_since + 30)
+            self.assertLess(c, 1.0)
+            self.assertGreaterEqual(c, 0.2)
             sentinel.stop()
 
     def test_vlm_result_stored_in_c_vlm(self):
