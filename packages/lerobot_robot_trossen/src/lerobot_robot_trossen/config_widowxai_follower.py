@@ -52,3 +52,7 @@ class WidowXAIFollowerConfig(RobotConfig):
     staged_positions: list[float] = field(
         default_factory=lambda: [0, np.pi / 3, np.pi / 6, np.pi / 5, 0, 0, 0]
     )
+
+    # Gripper position (m) to command during disconnect so the robot releases any held object
+    # before returning to staged and sleep positions.
+    gripper_open_position: float = 0.035

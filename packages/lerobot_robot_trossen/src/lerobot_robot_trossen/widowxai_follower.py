@@ -199,12 +199,22 @@ class WidowXAIFollower(Robot):
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
-        # Lock the arm at its current position before releasing control so it
-        # does not drift, snap to a home pose, or go limp after inference ends.
-        current_positions = trossen_arm.VectorDouble(self.driver.get_all_positions())
+        # Step 1: Open gripper to release any held object before moving the arm.
+        current_positions = list(self.driver.get_all_positions())
+        current_positions[-1] = self.config.gripper_open_position
+        self.driver.set_all_positions(current_positions, goal_time=1.5, blocking=True)
+
+        # Step 2: Return to staged position (safe intermediate pose).
         self.driver.set_all_positions(
-            current_positions,
-            goal_time=0.5,
+            self.config.staged_positions,
+            goal_time=8.0,
+            blocking=True,
+        )
+
+        # Step 3: Move to sleep/home position (all joints to zero).
+        self.driver.set_all_positions(
+            [0.0] * len(self.config.joint_names),
+            goal_time=5.0,
             blocking=True,
         )
 
