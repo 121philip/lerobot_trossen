@@ -233,6 +233,8 @@ def parse_args():
                         help="Maximum frames sampled into each Sentinel VLM image grid")
     parser.add_argument("--sentinel-progress-max-age-s", type=float, default=8.0,
                         help="Maximum age before a VLM progress result is considered stale")
+    parser.add_argument("--sentinel-decay-lambda", type=float, default=0.05,
+                        help="Exponential decay rate for c_progress when robot is stuck (half-life = ln2/lambda ≈ 14s).")
 
     # RTC 开关（默认关闭，传 --rtc 则开启）
     parser.add_argument("--rtc", action="store_true", default=False,
