@@ -207,9 +207,21 @@ class ProgressDecayMonitorTest(unittest.TestCase):
             m.push(np.zeros(7), t + i * 0.4)
         c_early = m.c_progress(t + 3.2)
         c_later = m.c_progress(t + 3.2 + 30)
+        self.assertLess(c_early, 1.0)
         self.assertLess(c_later, c_early)
         self.assertLess(c_later, 1.0)
         self.assertGreaterEqual(c_later, 0.2)
+
+    def test_past_now_clamps_to_full_confidence(self):
+        """now earlier than stuck_since must not exceed 1.0."""
+        m = ProgressDecayMonitor(decay_lambda=0.05, floor=0.2)
+        t = 1000.0
+        for i in range(8):
+            m.push(np.zeros(7), t + i * 0.4)
+        # Pass a now earlier than when stuck was first detected
+        c = m.c_progress(t)  # earlier than stuck_since (~t+1.2)
+        self.assertLessEqual(c, 1.0)
+        self.assertGreaterEqual(c, 0.2)
 
     def test_floor_approached_asymptotically(self):
         m = ProgressDecayMonitor(decay_lambda=0.05, floor=0.2)

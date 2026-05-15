@@ -323,7 +323,7 @@ class ProgressDecayMonitor:
             stuck_since = self._stuck_since
         if stuck_since is None:
             return 1.0
-        stuck_time = now - stuck_since
+        stuck_time = max(0.0, now - stuck_since)
         return self.floor + (1.0 - self.floor) * float(np.exp(-self.decay_lambda * stuck_time))
 
 
