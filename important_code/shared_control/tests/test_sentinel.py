@@ -47,14 +47,14 @@ class SentinelRuntimeTest(unittest.TestCase):
         self.assertTrue(fast.action_alarm)
         self.assertEqual(fast.c_action, 0.2)
 
-    def test_reliability_uses_min_of_action_and_progress(self):
+    def test_vlm_result_is_stored_in_c_vlm_not_c_progress(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             sentinel = SentinelRuntime(ema_beta=0.0, eps=0.001, log_dir=tmpdir)
             fast = sentinel._fast_action(_metrics(c_action=0.9))
             result = sentinel._arbitrate(
                 fast,
                 ProgressMonitorResult(
-                    timestamp=1.0,
+                    timestamp=time.time(),
                     c_progress=0.1,
                     alarm=True,
                     stuck=True,
@@ -66,19 +66,21 @@ class SentinelRuntimeTest(unittest.TestCase):
             )
             sentinel.stop()
 
-        self.assertAlmostEqual(result.r_raw, 0.1)
-        self.assertAlmostEqual(result.w_vla, 0.101)
-        self.assertAlmostEqual(result.w_human, 0.901)
-        self.assertTrue(result.sentinel_alarm)
+        # VLM c_progress=0.1 goes to c_vlm, not to arbitration formula
+        self.assertAlmostEqual(result.c_vlm, 0.1)
+        # r_raw = min(c_action=0.9, c_progress_decay); since no joints pushed, decay=1.0
+        self.assertAlmostEqual(result.r_raw, 0.9, places=3)
+        # progress_alarm still reflects VLM alarm
+        self.assertTrue(result.progress_alarm)
 
-    def test_stale_progress_falls_back_to_action_consistency(self):
+    def test_stale_vlm_sets_c_vlm_to_none(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             sentinel = SentinelRuntime(ema_beta=0.0, eps=0.001, log_dir=tmpdir)
             fast = sentinel._fast_action(_metrics(c_action=0.7))
             result = sentinel._arbitrate(
                 fast,
                 ProgressMonitorResult(
-                    timestamp=1.0,
+                    timestamp=time.time(),
                     c_progress=None,
                     alarm=False,
                     stuck=False,
@@ -92,9 +94,11 @@ class SentinelRuntimeTest(unittest.TestCase):
             )
             sentinel.stop()
 
-        self.assertAlmostEqual(result.r_raw, 0.5)
+        self.assertIsNone(result.c_vlm)
         self.assertTrue(result.progress_stale)
         self.assertFalse(result.progress_alarm)
+        # c_progress from decay (no joints pushed → 1.0), r_raw = min(0.7, 1.0) = 0.7
+        self.assertAlmostEqual(result.r_raw, 0.7, places=3)
 
     def test_progress_alarm_requires_consecutive_failures(self):
         image = np.zeros((8, 8, 3), dtype=np.uint8)
@@ -159,33 +163,32 @@ class LocalMotionDetectorTest(unittest.TestCase):
 
 
 class SentinelStaleCapTest(unittest.TestCase):
-    def test_stale_fallback_caps_r_raw_when_moving(self):
-        """r_raw <= 0.5 when c_progress is None (stale) and robot is moving."""
+    def test_stuck_robot_lowers_r_raw(self):
+        """r_raw < 1.0 when robot is stuck and c_action=1.0."""
         with tempfile.TemporaryDirectory() as tmpdir:
             sentinel = SentinelRuntime(ema_beta=0.0, eps=0.0, log_dir=tmpdir)
-            t = time.time()
+            t = 1000.0
             for i in range(8):
-                sentinel._motion_detector.push(
+                sentinel._progress_decay.push(np.zeros(7), t + i * 0.4)
+            stuck_since = sentinel._progress_decay._stuck_since
+            self.assertIsNotNone(stuck_since)
+            c = sentinel._progress_decay.c_progress(stuck_since + 30)
+            self.assertLess(c, 1.0)
+            self.assertGreaterEqual(c, 0.2)
+            sentinel.stop()
+
+    def test_moving_robot_keeps_full_c_progress(self):
+        """c_progress = 1.0 when robot is moving."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sentinel = SentinelRuntime(ema_beta=0.0, eps=0.0, log_dir=tmpdir)
+            t = 1000.0
+            for i in range(8):
+                sentinel._progress_decay.push(
                     np.array([0.1 * i, 0, 0, 0, 0, 0, 0]), t + i * 0.4
                 )
-            fast = sentinel._fast_action(_metrics(c_action=1.0))
-            result = sentinel._arbitrate(fast, None)   # None -> stale path
+            c = sentinel._progress_decay.c_progress(t + 3.2)
+            self.assertAlmostEqual(c, 1.0)
             sentinel.stop()
-
-        self.assertLessEqual(result.r_raw, 0.5)
-
-    def test_stale_fallback_lower_when_stuck(self):
-        """r_raw <= 0.2 when stale and robot is stuck."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            sentinel = SentinelRuntime(ema_beta=0.0, eps=0.0, log_dir=tmpdir)
-            t = time.time()
-            for i in range(8):
-                sentinel._motion_detector.push(np.zeros(7), t + i * 0.4)
-            fast = sentinel._fast_action(_metrics(c_action=1.0))
-            result = sentinel._arbitrate(fast, None)
-            sentinel.stop()
-
-        self.assertLessEqual(result.r_raw, 0.2)
 
 
 class ProgressDecayMonitorTest(unittest.TestCase):
