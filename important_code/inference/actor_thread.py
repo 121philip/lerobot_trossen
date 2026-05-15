@@ -17,7 +17,9 @@ import time
 import traceback
 from threading import Event
 
+import rerun as rr
 from lerobot.policies.rtc.action_queue import ActionQueue
+from lerobot.utils.visualization_utils import log_rerun_data
 
 from important_code.inference.robot_wrapper import policy_action_to_robot_action
 from important_code.utils import get_control_fps
@@ -81,6 +83,9 @@ def actor_thread_fn(
                 if rviz_publisher is not None:
                     # print("Action :", action.cpu().numpy())
                     rviz_publisher.put_actual(action.cpu().numpy())
+
+                if getattr(args, "display_data", False):
+                    log_rerun_data(action=action_dict)
 
                 action_count += 1
             else:
