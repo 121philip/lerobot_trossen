@@ -149,7 +149,8 @@ def load_smolvla_policy(policy_path: str):
     return SmolVLAPolicy.from_pretrained(policy_path)
 
 
-def parse_args():
+def build_arg_parser():
+    """Return the configured ArgumentParser (without parsing sys.argv)."""
     parser = argparse.ArgumentParser(
         description="Run SmolVLA Inference on WidowX Robot"
     )
@@ -235,6 +236,9 @@ def parse_args():
                         help="Maximum age before a VLM progress result is considered stale")
     parser.add_argument("--sentinel-decay-lambda", type=float, default=0.05,
                         help="Exponential decay rate for c_progress when robot is stuck (half-life = ln2/lambda ≈ 14s).")
+    parser.add_argument("--sentinel-stuck-threshold", type=float, default=0.05,
+                        help="Max joint range (rad) across the motion window before robot is considered stuck. "
+                             "Increase (e.g. 0.08) to also catch oscillatory motion.")
 
     # RTC 开关（默认关闭，传 --rtc 则开启）
     parser.add_argument("--rtc", action="store_true", default=False,
@@ -263,7 +267,12 @@ def parse_args():
     parser.add_argument("--print-publish", action="store_true",
                         help="单独测试时打印 VLA 发布内容（无需 bridge_node 在线）")
 
-    args = parser.parse_args()
+    return parser
+
+
+def parse_args():
+    """Parse sys.argv and return the argument namespace."""
+    args = build_arg_parser().parse_args()
     args.fps = args.control_fps  # Backward compatibility for older helper code/tests.
     return args
 

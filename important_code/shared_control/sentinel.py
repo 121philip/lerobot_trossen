@@ -313,11 +313,13 @@ class ProgressDecayMonitor:
     def _is_stuck(self) -> bool:
         if len(self._history) < 2:
             return False
-        t_oldest, j_oldest = self._history[0]
-        t_newest, j_newest = self._history[-1]
-        if t_newest - t_oldest < 1.0:
+        if self._history[-1][0] - self._history[0][0] < 1.0:
             return False
-        return float(np.max(np.abs(j_newest - j_oldest))) < self.stuck_threshold
+        # Use full window max-min range instead of endpoint displacement so that
+        # oscillatory motion (robot shaking in place) is also detected as stuck.
+        joints_array = np.array([j for _, j in self._history])
+        joint_range = np.max(joints_array, axis=0) - np.min(joints_array, axis=0)
+        return float(np.max(joint_range)) < self.stuck_threshold
 
     def c_progress(self, now: float | None = None) -> float:
         now = float(now) if now is not None else time.time()
@@ -487,6 +489,7 @@ class SentinelRuntime:
         jerk_max: float | None = None,
         boundary_jump_max: float | None = None,
         decay_lambda: float = 0.05,
+        stuck_threshold: float = 0.05,
         ema_beta: float = 0.8,
         eps: float = 1e-3,
         client: CloudVLMClient | None = None,
@@ -512,6 +515,7 @@ class SentinelRuntime:
         self.jerk_max = jerk_max
         self.boundary_jump_max = boundary_jump_max
         self.decay_lambda = float(decay_lambda)
+        self.stuck_threshold = float(stuck_threshold)
         self.ema_beta = float(ema_beta)
         self.eps = float(eps)
 
@@ -521,7 +525,10 @@ class SentinelRuntime:
         self._thread: threading.Thread | None = None
         self._consecutive_failures = 0
         self._r_smooth: float | None = None
-        self._progress_decay = ProgressDecayMonitor(decay_lambda=self.decay_lambda)
+        self._progress_decay = ProgressDecayMonitor(
+            decay_lambda=self.decay_lambda,
+            stuck_threshold=self.stuck_threshold,
+        )
 
         # 每次实验创建一个时间戳目录，便于论文统计 VLM latency、报警和权重曲线。
         self.log_dir = Path(log_dir) / time.strftime("%Y%m%d-%H%M%S")
@@ -558,6 +565,7 @@ class SentinelRuntime:
             jerk_max=_maybe_float(getattr(args, "sentinel_jerk_max", None)),
             boundary_jump_max=_maybe_float(getattr(args, "sentinel_boundary_jump_max", None)),
             decay_lambda=float(getattr(args, "sentinel_decay_lambda", 0.05)),
+            stuck_threshold=float(getattr(args, "sentinel_stuck_threshold", 0.05)),
             ema_beta=float(getattr(args, "sentinel_ema_beta", 0.8)),
             eps=float(getattr(args, "sentinel_weight_eps", 1e-3)),
         )
