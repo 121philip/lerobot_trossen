@@ -83,12 +83,14 @@ class FastActionResult:
 
 @dataclass(frozen=True)
 class SentinelArbitrationResult:
-    # r_raw 是本轮未平滑的 VLA 可靠度；r_smooth 是 EMA 后的可靠度。
-    # w_vla / w_human 会直接进入 eTaSL constraint weight。
+    # c_progress: 来自 ProgressDecayMonitor，始终有值，运动停止后指数衰减到 0.2。
+    # c_vlm: 来自云端 VLM 的原始输出，stale 时为 None，仅用于日志记录。
+    # w_vla / w_human 直接进入 eTaSL constraint weight。
     timestamp: float
     c_action: float
     action_alarm: bool
-    c_progress: float | None
+    c_progress: float
+    c_vlm: float | None
     progress_alarm: bool
     progress_stale: bool
     sentinel_alarm: bool

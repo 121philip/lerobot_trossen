@@ -258,5 +258,20 @@ class CloudVLMClientTest(unittest.TestCase):
         self.assertIn("Missing API key", result.error)
 
 
+class SentinelArbitrationResultFieldsTest(unittest.TestCase):
+    def test_result_has_c_vlm_field(self):
+        from important_code.shared_control.sentinel import SentinelArbitrationResult
+        import dataclasses
+        fields = {f.name for f in dataclasses.fields(SentinelArbitrationResult)}
+        self.assertIn("c_vlm", fields)
+
+    def test_c_progress_and_c_vlm_are_present(self):
+        from important_code.shared_control.sentinel import SentinelArbitrationResult
+        import dataclasses
+        fields = {f.name for f in dataclasses.fields(SentinelArbitrationResult)}
+        self.assertIn("c_progress", fields)
+        self.assertIn("c_vlm", fields)
+
+
 if __name__ == "__main__":
     unittest.main()
