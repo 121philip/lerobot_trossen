@@ -277,6 +277,56 @@ class LocalMotionDetector:
         return 0.2 if displacement < self.stuck_threshold else 0.5
 
 
+class ProgressDecayMonitor:
+    """Tracks robot stuck duration; outputs exponentially decaying c_progress."""
+
+    def __init__(
+        self,
+        window_s: float = 3.0,
+        stuck_threshold: float = 0.02,
+        decay_lambda: float = 0.05,
+        floor: float = 0.2,
+    ) -> None:
+        self.window_s = float(window_s)
+        self.stuck_threshold = float(stuck_threshold)
+        self.decay_lambda = float(decay_lambda)
+        self.floor = float(floor)
+        self._history: deque[tuple[float, np.ndarray]] = deque()
+        self._stuck_since: float | None = None
+        self._lock = threading.Lock()
+
+    def push(self, joints: np.ndarray, t: float) -> None:
+        joints = np.asarray(joints, dtype=np.float64).copy()
+        with self._lock:
+            self._history.append((float(t), joints))
+            cutoff = t - self.window_s
+            while self._history and self._history[0][0] < cutoff:
+                self._history.popleft()
+            if self._is_stuck():
+                if self._stuck_since is None:
+                    self._stuck_since = float(t)
+            else:
+                self._stuck_since = None
+
+    def _is_stuck(self) -> bool:
+        if len(self._history) < 2:
+            return False
+        t_oldest, j_oldest = self._history[0]
+        t_newest, j_newest = self._history[-1]
+        if t_newest - t_oldest < 1.0:
+            return False
+        return float(np.max(np.abs(j_newest - j_oldest))) < self.stuck_threshold
+
+    def c_progress(self, now: float | None = None) -> float:
+        now = float(now) if now is not None else time.time()
+        with self._lock:
+            stuck_since = self._stuck_since
+        if stuck_since is None:
+            return 1.0
+        stuck_time = now - stuck_since
+        return self.floor + (1.0 - self.floor) * float(np.exp(-self.decay_lambda * stuck_time))
+
+
 class CloudVLMClient:
     """Minimal OpenAI/Gemini client using urllib."""
 

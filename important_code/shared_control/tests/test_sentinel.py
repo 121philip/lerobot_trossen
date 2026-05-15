@@ -8,6 +8,7 @@ import numpy as np
 from important_code.shared_control.sentinel import (
     CloudVLMClient,
     LocalMotionDetector,
+    ProgressDecayMonitor,
     ProgressMonitorResult,
     SentinelFrameBuffer,
     SentinelRuntime,
@@ -185,6 +186,50 @@ class SentinelStaleCapTest(unittest.TestCase):
             sentinel.stop()
 
         self.assertLessEqual(result.r_raw, 0.2)
+
+
+class ProgressDecayMonitorTest(unittest.TestCase):
+    def test_no_history_returns_full_confidence(self):
+        m = ProgressDecayMonitor()
+        self.assertAlmostEqual(m.c_progress(), 1.0)
+
+    def test_moving_returns_full_confidence(self):
+        m = ProgressDecayMonitor(stuck_threshold=0.02)
+        t = 1000.0
+        for i in range(8):
+            m.push(np.array([0.1 * i, 0, 0, 0, 0, 0, 0]), t + i * 0.4)
+        self.assertAlmostEqual(m.c_progress(t + 3.2), 1.0)
+
+    def test_stuck_decays_below_full(self):
+        m = ProgressDecayMonitor(decay_lambda=0.05, floor=0.2)
+        t = 1000.0
+        for i in range(8):
+            m.push(np.zeros(7), t + i * 0.4)
+        c_early = m.c_progress(t + 3.2)
+        c_later = m.c_progress(t + 3.2 + 30)
+        self.assertLess(c_later, c_early)
+        self.assertLess(c_later, 1.0)
+        self.assertGreaterEqual(c_later, 0.2)
+
+    def test_floor_approached_asymptotically(self):
+        m = ProgressDecayMonitor(decay_lambda=0.05, floor=0.2)
+        t = 1000.0
+        for i in range(8):
+            m.push(np.zeros(7), t + i * 0.4)
+        c = m.c_progress(t + 3.2 + 1000)
+        self.assertAlmostEqual(c, 0.2, places=2)
+
+    def test_recovery_resets_to_full_confidence(self):
+        m = ProgressDecayMonitor()
+        t = 1000.0
+        for i in range(8):
+            m.push(np.zeros(7), t + i * 0.4)
+        c_stuck = m.c_progress(t + 10.0)
+        self.assertLess(c_stuck, 1.0)
+        for i in range(8):
+            m.push(np.array([0.1 * i, 0, 0, 0, 0, 0, 0]), t + 10.0 + i * 0.4)
+        c_moving = m.c_progress(t + 10.0 + 3.2)
+        self.assertAlmostEqual(c_moving, 1.0)
 
 
 class CloudVLMClientTest(unittest.TestCase):
