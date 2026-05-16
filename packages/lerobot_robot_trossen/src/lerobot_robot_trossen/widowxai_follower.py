@@ -207,7 +207,7 @@ class WidowXAIFollower(Robot):
         # Step 2: Return to staged position (safe intermediate pose).
         self.driver.set_all_positions(
             self.config.staged_positions,
-            goal_time=8.0,
+            goal_time=10.0,
             blocking=True,
         )
 

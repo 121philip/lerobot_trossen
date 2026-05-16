@@ -29,6 +29,7 @@ from copy import copy
 from pathlib import Path
 from threading import Event
 
+import numpy as np
 import rerun as rr
 import torch
 
@@ -218,6 +219,10 @@ def inference_thread_fn(
                             raw_obs[f"{name}.pos"] = float(bridge_joints[i])
 
                 actual_joints = rviz_publisher.get_latest_joints() if rviz_publisher is not None else None
+                if actual_joints is None:
+                    actual_joints = np.array(
+                        [raw_obs.get(f"{name}.pos", 0.0) for name in JOINT_NAMES], dtype=float
+                    )
 
                 # ── D. 预处理观测（在 no_grad 下进行）──
                 # 注意：必须用 no_grad() 而不是 inference_mode()！
