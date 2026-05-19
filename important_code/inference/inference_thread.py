@@ -39,10 +39,7 @@ from lerobot.policies.rtc.latency_tracker import LatencyTracker
 
 from important_code.utils import DEVICE, JOINT_NAMES, get_control_fps
 from important_code.inference.robot_wrapper import create_mock_observation, robot_obs_to_policy_obs
-from important_code.shared_control.confidence import (
-    ConfidenceEstimator,
-    compute_alpha,
-)
+from important_code.shared_control.confidence import ConfidenceEstimator
 from important_code.shared_control.sentinel import SentinelRuntime
 
 logger = logging.getLogger(__name__)
@@ -146,10 +143,6 @@ def inference_thread_fn(
             args, "sentinel_confidence_mode",
             getattr(args, "confidence_method", "combined"),
         )
-        alpha_mode = getattr(args, "alpha_mode", "constant")
-        alpha_const = float(getattr(args, "alpha_const", 0.5))
-        alpha_tau_c = float(getattr(args, "alpha_tau_c", 0.4))
-        alpha_k_c = float(getattr(args, "alpha_k_c", 8.0))
         confidence_estimator = ConfidenceEstimator(
             d=5,
             gamma=1.0,
@@ -169,12 +162,8 @@ def inference_thread_fn(
             bool(args.rtc), queue_threshold, control_fps,
         )
         logger.info(
-            "[HEALTH] C_VLA method=%s | alpha_mode=%s | alpha_const=%.3f | tau_c=%.3f | k_c=%.3f",
+            "[HEALTH] C_VLA method=%s",
             confidence_method,
-            alpha_mode,
-            alpha_const,
-            alpha_tau_c,
-            alpha_k_c,
         )
         if args.rtc:
             logger.warning("[HEALTH] RTC is enabled; first-pass grape diagnosis expects --rtc disabled.")
@@ -198,6 +187,9 @@ def inference_thread_fn(
                 # ── B. 计算延迟补偿帧数 ──
                 # 推理耗时期间机械臂仍在执行旧动作，inference_delay 告诉模型
                 # "当这个新块被用到时，机械臂已经额外走了多少步"。
+                # Formula: delay_steps = ceil(latency_s / (1/fps))
+                # Uses the *maximum* observed latency (not average) to conservatively
+                # avoid misaligned merges on slow inference iterations.
                 inference_latency = latency_tracker.max() or 0.0
                 inference_delay = math.ceil(inference_latency / time_per_step)
                 logger.debug("inference_delay=%s", inference_delay)
@@ -280,13 +272,6 @@ def inference_thread_fn(
                     actual_joints=actual_joints,
                     delay_steps=inference_delay,
                 )
-                alpha = compute_alpha(
-                    confidence_metrics.c_action,
-                    alpha_mode=alpha_mode,
-                    alpha_const=alpha_const,
-                    tau_c=alpha_tau_c,
-                    k_c=alpha_k_c,
-                )
                 vel_max = confidence_metrics.vel_max
                 accel_max = confidence_metrics.accel_max
                 jerk_max = confidence_metrics.jerk_max
@@ -309,7 +294,6 @@ def inference_thread_fn(
                             "delay_steps": new_delay,
                             "queue_size_before": queue_size_before,
                             "confidence_method": confidence_method,
-                            "alpha": alpha,
                         },
                     )
                     logger.info(
@@ -359,8 +343,6 @@ def inference_thread_fn(
 
                 if rviz_publisher is not None:
                     rviz_publisher.put_predicted(full_robot_chunk.cpu().numpy())
-                    if hasattr(rviz_publisher, "put_alpha"):
-                        rviz_publisher.put_alpha(alpha)
                     if (
                         sentinel_result is not None
                         and not sentinel_runtime.log_only
@@ -375,7 +357,6 @@ def inference_thread_fn(
 
                 if getattr(args, "display_data", False):
                     rr.log("inference/c_action",   rr.Scalars(confidence_metrics.c_action))
-                    rr.log("inference/alpha",       rr.Scalars(alpha))
                     rr.log("inference/jerk_max",    rr.Scalars(jerk_max))
                     rr.log("inference/latency_ms",  rr.Scalars(new_latency * 1000.0))
                     rr.log("inference/queue_size",  rr.Scalars(float(action_queue.qsize())))
@@ -401,7 +382,7 @@ def inference_thread_fn(
                 logger.info(
                     "[INFERENCE] Chunk in %.3fs "
                     "(delay=%s, queue_before=%s, queue_after=%s, idle_gap_ms=%.1f, "
-                    "alpha=%.4f, alpha_mode=%s, confidence_method=%s, "
+                    "confidence_method=%s, "
                     "c_action=%.4f, c_raw=%.4f, c_speed_norm=%.4f, c_regression=%.4f, "
                     "cbc_raw_mse=%.6f, cbc_reg_residual=%.6f, "
                     "a_vi=%.6f, a_ai=%.6f, jerk=%.6f, "
@@ -411,8 +392,6 @@ def inference_thread_fn(
                     queue_size_before,
                     action_queue.qsize(),
                     idle_gap_ms,
-                    alpha,
-                    alpha_mode,
                     confidence_method,
                     confidence_metrics.c_action,
                     confidence_metrics.c_raw,

@@ -1,18 +1,18 @@
-"""
+﻿"""
 RViz 可视化发布器（UDP 发送端）+ CroSPI 关节状态接收端。
 
 架构：venv 中的 Python 3.12 无法直接 import rclpy（rclpy 编译目标为系统 Python 3.10）。
 解决方案：
   - vla_ros_bridge_node.py 在已 source ROS2 环境的系统 Python 3.10 中运行，负责发布 ROS2 话题
   - 本模块（rviz_publisher.py）在 Python 3.12 主进程中运行：
-      发送侧：通过 UDP :9788 向 bridge_node 发送 VLA 输出（ACTUAL、PREDICTED、ALPHA）
+      发送侧：通过 UDP :9788 向 bridge_node 发送 VLA 输出（ACTUAL、PREDICTED、WEIGHTS）
       接收侧：通过 UDP :9789 接收 bridge_node 转发的 /joint_states（从机械臂真实状态）
 
 通信协议（双向 UDP）：
   发送 → bridge :9788
     类型 0 (ACTUAL)    = shape [7,]   实际执行的关节位置（来自 actor_thread）
     类型 1 (PREDICTED) = shape [N,7]  预测动作块（来自 inference_thread）
-    类型 2 (ALPHA)     = shape [1,]   共享控制 alpha 值
+    类型 2 (WEIGHTS)   = shape [2,]   Sentinel 直接权重 [w_vla, w_human]
   接收 ← bridge :9789
     无类型字节：直接 pickle 序列化的 shape [7,] 关节位置数组（弧度）
 
@@ -34,8 +34,7 @@ _UDP_PORT    = 9788
 _UDP_PORT_JS = 9789   # 反向：bridge → lerobot 关节状态
 _MSG_ACTUAL    = b"\x00"
 _MSG_PREDICTED = b"\x01"
-_MSG_ALPHA     = b"\x02"
-_MSG_WEIGHTS   = b"\x03"
+_MSG_WEIGHTS   = b"\x02"
 _JOINT_COUNT = 7
 _WEIGHT_COUNT = 2
 
@@ -106,13 +105,6 @@ class RVizPublisher:
         if self._verbose:
             print(f"[PUBLISH] PREDICTED shape={np.asarray(chunk).shape}", flush=True)
         self._enqueue(_MSG_PREDICTED, chunk)
-
-    def put_alpha(self, alpha: float):
-        """Send the final shared-control alpha to the CroSPI bridge."""
-        alpha_array = np.array([float(np.clip(alpha, 0.0, 1.0))], dtype=np.float64)
-        if self._verbose:
-            print(f"[PUBLISH] ALPHA   alpha={alpha_array[0]:.4f}", flush=True)
-        self._enqueue(_MSG_ALPHA, alpha_array)
 
     def put_weights(self, w_vla: float, w_human: float):
         """Send Sentinel direct eTaSL weights to the CroSPI bridge."""

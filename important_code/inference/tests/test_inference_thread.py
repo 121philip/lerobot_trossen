@@ -25,9 +25,6 @@ class _FakeRVizPublisher:
     def put_predicted(self, chunk):
         pass
 
-    def put_alpha(self, alpha):
-        pass
-
 
 class _FakePolicy:
     config = SimpleNamespace(n_action_steps=10)
@@ -72,10 +69,6 @@ class InferenceThreadBridgeOverrideTest(unittest.TestCase):
             queue_threshold=30,
             task="test task",
             confidence_method="regression_cbc",
-            alpha_mode="constant",
-            alpha_const=0.5,
-            alpha_tau_c=0.4,
-            alpha_k_c=8.0,
             execution_horizon=10,
             crospi=False,
         )
@@ -110,10 +103,6 @@ class InferenceThreadBridgeOverrideTest(unittest.TestCase):
             queue_threshold=30,
             task="test task",
             confidence_method="regression_cbc",
-            alpha_mode="constant",
-            alpha_const=0.5,
-            alpha_tau_c=0.4,
-            alpha_k_c=8.0,
             execution_horizon=10,
             crospi=False,
         )
