@@ -145,7 +145,7 @@ def inference_thread_fn(
         )
         confidence_estimator = ConfidenceEstimator(
             d=5,
-            gamma=1.0,
+            gamma=100.0,
             fps=control_fps,
             confidence_method=confidence_method,
         )
@@ -263,7 +263,7 @@ def inference_thread_fn(
                     queued_robot_chunk = full_robot_chunk
                 else:
                     # n_action_steps = int(getattr(policy.config, "n_action_steps", len(full_robot_chunk)))  # 可以调整入队的动作步数，默认为整个块
-                    n_action_steps = 10  # 注意，n_action_steps 可调！！！！
+                    n_action_steps = 25  # 注意，n_action_steps 可调！！！！
                     queued_original_chunk = full_original_chunk[:n_action_steps]
                     queued_robot_chunk = full_robot_chunk[:n_action_steps]
 
@@ -274,6 +274,7 @@ def inference_thread_fn(
                     queued_robot_chunk,
                     actual_joints=actual_joints,
                     delay_steps=inference_delay,
+                    actions_normalized=queued_original_chunk,
                 )
                 vel_max = confidence_metrics.vel_max
                 accel_max = confidence_metrics.accel_max

@@ -184,7 +184,7 @@ def build_arg_parser():
     parser.add_argument("--confidence-method", type=str, default="regression_cbc",
                         choices=["raw_cbc", "speed_norm_cbc", "regression_cbc"],
                         help="C_VLA method used as the primary confidence signal")
-    parser.add_argument("--sentinel-confidence-mode", type=str, default="combined",
+    parser.add_argument("--sentinel-confidence-mode", type=str, default="regression_cbc",
                         choices=["raw_cbc", "speed_norm_cbc", "regression_cbc", "tracking", "combined"],
                         help="c_action mode: cbc modes measure boundary smoothness; "
                              "tracking measures joint tracking error; combined = sqrt(regression * tracking).")

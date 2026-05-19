@@ -109,5 +109,62 @@ class ConfidenceEstimatorTest(unittest.TestCase):
         self.assertAlmostEqual(metrics.c_action, expected, places=6)
 
 
+    # ── Tests for actions_normalized (normalized-space CBC) ───────────────
+
+    def test_normalized_space_detects_small_joint_jump(self):
+        """
+        Gripper joint (index 6) has a tiny robot-space range (~0.0001 rad) but large
+        normalized range. Without actions_normalized the jump is invisible; with it the
+        confidence should drop.
+
+        Joints 0-5 form a smooth linear continuation across the boundary so they don't
+        dominate the residual — only joint 6 differs between robot vs normalized space.
+        """
+        def robot_chunk(start, stop, gripper_val: float) -> np.ndarray:
+            chunk = np.linspace(start, stop, 50)[:, None] * np.ones((1, 7))
+            chunk[:, 6] = gripper_val
+            return chunk
+
+        def norm_chunk(start, stop, gripper_norm: float) -> np.ndarray:
+            chunk = np.linspace(start, stop, 50)[:, None] * np.ones((1, 7))
+            chunk[:, 6] = gripper_norm
+            return chunk
+
+        # --- Without actions_normalized: gripper jump 0.0001→0.0002 rad is invisible ---
+        est_robot = ConfidenceEstimator(d=5, gamma=1.0, fps=30.0, confidence_method="regression_cbc")
+        est_robot.update(robot_chunk(0.0, 1.0, gripper_val=0.0001))
+        metrics_robot = est_robot.update(robot_chunk(1.02, 2.0, gripper_val=0.0002))
+        # Joints 0-5 are smooth continuation; gripper delta ≈ 1e-4 → residual near zero
+        self.assertGreater(metrics_robot.c_regression, 0.99)
+
+        # --- With actions_normalized: gripper jump -0.8→0.7 in normalized space is detected ---
+        est_norm = ConfidenceEstimator(d=5, gamma=1.0, fps=30.0, confidence_method="regression_cbc")
+        est_norm.update(
+            robot_chunk(0.0, 1.0, gripper_val=0.0001),
+            actions_normalized=norm_chunk(0.0, 1.0, gripper_norm=-0.8),
+        )
+        metrics_norm = est_norm.update(
+            robot_chunk(1.02, 2.0, gripper_val=0.0002),
+            actions_normalized=norm_chunk(1.02, 2.0, gripper_norm=0.7),
+        )
+        self.assertLess(metrics_norm.c_regression, metrics_robot.c_regression)
+
+    def test_normalized_fallback_equals_robot_space_when_not_provided(self):
+        """When actions_normalized is None, CBC uses robot-space chunk (backward compat)."""
+        chunk_a = linear_chunk(0.0, 1.0)
+        chunk_b = linear_chunk(1.02, 2.0)
+
+        est_new = ConfidenceEstimator(d=5, gamma=1.0, fps=30.0)
+        est_old = ConfidenceEstimator(d=5, gamma=1.0, fps=30.0)
+
+        est_new.update(chunk_a)
+        est_old.update(chunk_a)
+        m_new = est_new.update(chunk_b)
+        m_old = est_old.update(chunk_b)
+
+        self.assertAlmostEqual(m_new.c_regression, m_old.c_regression, places=10)
+        self.assertAlmostEqual(m_new.cbc_raw_mse, m_old.cbc_raw_mse, places=10)
+
+
 if __name__ == "__main__":
     unittest.main()

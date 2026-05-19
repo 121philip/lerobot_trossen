@@ -11,3 +11,4 @@
 - [SmolVLA 10Hz 推理运行时分析](project_smolvla_10hz_inference_runtime.md) — `chunk_size=25`/`n_action_steps=10` 语义、async 与 RTC 区别、30fps 相机 + 10Hz 控制部署、非 RTC 截断和运行命令
 - [VLA 共享控制系统架构](project_vla_shared_control_architecture.md) — 关键文件、UDP 协议、eTaSL 权重配置、双进程桥接原因、CroSPI 200Hz/VLA 10Hz 频率
 - [VLA 按钮触发抖动调试记录](project_vla_button_shaking_debug.md) — 统一根因(VLA obs-action mismatch)、左键仅HUMAN_ONLY有效、alignment=3s>ramp=1.5s设计、全部修复清单
+- [regression-CBC 归一化空间修复](project_confidence_cbc_normalization_fix.md) — 夹爪关节尺度偏差问题、CBC 改用 actions_normalized（归一化空间）、tracking 保留机器人空间、关键文件与设计约束

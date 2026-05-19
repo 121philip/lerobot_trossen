@@ -109,6 +109,7 @@ class ConfidenceEstimator:
         self.epsilon = float(epsilon)
         self.confidence_method = confidence_method
         self.prev_chunk: np.ndarray | None = None
+        self.prev_chunk_norm: np.ndarray | None = None
         self._fit_matrix, self._x_matrix = self._make_fit_matrix(self.d)
 
     @staticmethod
@@ -128,18 +129,22 @@ class ConfidenceEstimator:
 
     def reset(self) -> None:
         self.prev_chunk = None
+        self.prev_chunk_norm = None
 
     def update(
         self,
         actions: Any,
         actual_joints: np.ndarray | None = None,
         delay_steps: int = 0,
+        actions_normalized: Any | None = None,
     ) -> ConfidenceMetrics:
         chunk = _to_numpy(actions)
+        chunk_norm = _to_numpy(actions_normalized) if actions_normalized is not None else chunk
         instability = self.compute_action_instability(chunk, fps=self.fps)
 
         if self.prev_chunk is None:
             self.prev_chunk = chunk.copy()
+            self.prev_chunk_norm = chunk_norm.copy()
             return ConfidenceMetrics(
                 c_action=1.0,
                 c_raw=1.0,
@@ -169,12 +174,15 @@ class ConfidenceEstimator:
                 f"prev={self.prev_chunk.shape}, curr={chunk.shape}"
             )
 
-        # Tracking error: compare actual joints to the predicted position delay_steps
-        # steps into the previous chunk (where the robot should be after that many steps).
-        raw_mse = float(np.mean((tail - head) ** 2))
-        reg_residual = self.compute_regression_residual(tail, head)
-        speed_norm = self.compute_speed_norm(chunk)
-        boundary_jump_max = float(np.max(np.abs(chunk[0] - self.prev_chunk[-1])))
+        tail_norm = self.prev_chunk_norm[-self.d :]
+        head_norm = chunk_norm[: self.d]
+
+        # CBC metrics use normalized space so all joints have equal scale weight.
+        raw_mse = float(np.mean((tail_norm - head_norm) ** 2))
+        reg_residual = self.compute_regression_residual(tail_norm, head_norm)
+        print("reg_residual: ", reg_residual)
+        speed_norm = self.compute_speed_norm(chunk_norm)
+        boundary_jump_max = float(np.max(np.abs(chunk_norm[0] - self.prev_chunk_norm[-1])))
 
         if actual_joints is not None:
             idx = min(max(0, int(delay_steps)), self.prev_chunk.shape[0] - 1)
@@ -190,9 +198,11 @@ class ConfidenceEstimator:
         c_raw = float(np.exp(-self.gamma * raw_mse))
         c_speed_norm = float(np.exp(-self.gamma * raw_mse / (speed_norm + self.epsilon)))
         c_regression = float(np.exp(-self.gamma * reg_residual))
+        print("c_regression: ", c_regression)
         c_action = self.select_confidence(c_raw, c_speed_norm, c_regression, c_tracking)
 
         self.prev_chunk = chunk.copy()
+        self.prev_chunk_norm = chunk_norm.copy()
         return ConfidenceMetrics(
             c_action=float(np.clip(c_action, 0.0, 1.0)),
             c_raw=float(np.clip(c_raw, 0.0, 1.0)),
