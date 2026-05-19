@@ -275,6 +275,9 @@ def inference_thread_fn(
                     queued_original_chunk = full_original_chunk[:n_action_steps]
                     queued_robot_chunk = full_robot_chunk[:n_action_steps]
 
+                print(f"[DEBUG] queued_original_chunk shape={queued_original_chunk.shape}\n{queued_original_chunk.cpu().numpy()}")
+                print(f"[DEBUG] queued_robot_chunk    shape={queued_robot_chunk.shape}\n{queued_robot_chunk.cpu().numpy()}")
+
                 confidence_metrics = confidence_estimator.update(
                     queued_robot_chunk,
                     actual_joints=actual_joints,
