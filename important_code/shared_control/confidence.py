@@ -30,32 +30,6 @@ def smoothstep(x: float) -> float:
     return x * x * (3.0 - 2.0 * x)
 
 
-def compute_alpha_from_confidence(
-    c_vla: float,
-    tau_c: float = 0.4,
-    k_c: float = 8.0,
-) -> float:
-    """Map VLA confidence to human authority alpha in [0, 1]."""
-    z = float(k_c) * (float(c_vla) - float(tau_c))
-    alpha = 1.0 - (1.0 / (1.0 + np.exp(-z)))
-    return float(np.clip(alpha, 0.0, 1.0))
-
-
-def compute_alpha(
-    c_vla: float,
-    alpha_mode: str = "constant",
-    alpha_const: float = 0.5,
-    tau_c: float = 0.4,
-    k_c: float = 8.0,
-) -> float:
-    """Select the final alpha source for runtime inference."""
-    if alpha_mode == "constant":
-        return float(np.clip(alpha_const, 0.0, 1.0))
-    if alpha_mode == "confidence":
-        return compute_alpha_from_confidence(c_vla, tau_c=tau_c, k_c=k_c)
-    raise ValueError(f"alpha_mode must be 'constant' or 'confidence', got {alpha_mode!r}")
-
-
 def _to_numpy(actions: Any) -> np.ndarray:
     """Convert torch/numpy action chunks to a 2D float64 numpy array."""
     if hasattr(actions, "detach"):
@@ -107,9 +81,10 @@ class ConfidenceEstimator:
     """
     Chunk Boundary Continuity + tracking-error confidence for synchronous action chunks.
 
-    The first chunk returns neutral confidence (0.5) because no previous boundary
-    exists. Subsequent calls compare the previous chunk tail with the current
-    chunk head and update the internal previous-chunk buffer.
+    The first chunk returns full confidence (1.0) because no previous boundary
+    exists and there is no evidence of discontinuity. Subsequent calls compare
+    the previous chunk tail with the current chunk head and update the internal
+    previous-chunk buffer.
     """
 
     def __init__(
@@ -134,14 +109,22 @@ class ConfidenceEstimator:
         self.epsilon = float(epsilon)
         self.confidence_method = confidence_method
         self.prev_chunk: np.ndarray | None = None
-        self._fit_matrix = self._make_fit_matrix(self.d)
+        self._fit_matrix, self._x_matrix = self._make_fit_matrix(self.d)
 
     @staticmethod
-    def _make_fit_matrix(d: int) -> np.ndarray:
+    def _make_fit_matrix(d: int) -> tuple[np.ndarray, np.ndarray]:
+        """Return (pinv_x, x) for a [slope, intercept] affine fit over 2d centred timesteps.
+
+        x  : design matrix shape (2d, 2) — column 0 is centred time, column 1 is ones.
+        pinv_x : Moore-Penrose pseudoinverse of x, shape (2, 2d).
+
+        Both are cached in __init__ so compute_regression_residual avoids rebuilding
+        the design matrix on every chunk boundary call.
+        """
         t = np.arange(2 * d, dtype=np.float64)
         t -= np.mean(t)
         x = np.column_stack([t, np.ones_like(t)])
-        return np.linalg.pinv(x)
+        return np.linalg.pinv(x), x
 
     def reset(self) -> None:
         self.prev_chunk = None
@@ -158,11 +141,11 @@ class ConfidenceEstimator:
         if self.prev_chunk is None:
             self.prev_chunk = chunk.copy()
             return ConfidenceMetrics(
-                c_action=0.5,
-                c_raw=0.5,
-                c_speed_norm=0.5,
-                c_regression=0.5,
-                c_tracking=0.5,
+                c_action=1.0,
+                c_raw=1.0,
+                c_speed_norm=1.0,
+                c_regression=1.0,
+                c_tracking=1.0,
                 confidence_method=self.confidence_method,
                 cbc_raw_mse=0.0,
                 cbc_reg_residual=0.0,
@@ -254,11 +237,8 @@ class ConfidenceEstimator:
 
     def compute_regression_residual(self, tail: np.ndarray, head: np.ndarray) -> float:
         boundary = np.concatenate([tail, head], axis=0)
-        beta = self._fit_matrix @ boundary
-        t = np.arange(2 * self.d, dtype=np.float64)
-        t -= np.mean(t)
-        x = np.column_stack([t, np.ones_like(t)])
-        fitted = x @ beta
+        beta = self._fit_matrix @ boundary   # least-squares [slope, intercept] per joint
+        fitted = self._x_matrix @ beta       # affine reconstruction over the 2d window
         return float(np.mean((boundary - fitted) ** 2))
 
     @staticmethod
@@ -302,10 +282,6 @@ class ConfidenceEstimator:
             accel_max=accel_max,
             jerk_max=jerk_max,
         )
-
-
-# Backwards-compat alias — remove after all callers are updated
-CBCConfidenceEstimator = ConfidenceEstimator
 
 
 if __name__ == "__main__":
