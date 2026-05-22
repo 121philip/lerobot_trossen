@@ -263,7 +263,7 @@ def inference_thread_fn(
                     queued_robot_chunk = full_robot_chunk
                 else:
                     # n_action_steps = int(getattr(policy.config, "n_action_steps", len(full_robot_chunk)))  # 可以调整入队的动作步数，默认为整个块
-                    n_action_steps = 25  # 注意，n_action_steps 可调！！！！
+                    n_action_steps = 10  # 注意，n_action_steps 可调！！！！
                     queued_original_chunk = full_original_chunk[:n_action_steps]
                     queued_robot_chunk = full_robot_chunk[:n_action_steps]
 

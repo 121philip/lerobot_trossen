@@ -128,8 +128,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_ROBOT_IP   = "192.168.2.3"
 DEFAULT_CAM1_ID    = 4    # 手腕摄像头
 DEFAULT_CAM2_ID    = 10   # 右侧摄像头
-DEFAULT_TRAIN_DIR  = "fulloa10/smolVLA_grape_10hz_9000"
-TASK_DESCRIPTION   = "pick the grape"
+DEFAULT_TRAIN_DIR  = "fulloa10/smolvla_pipe_bomb_transfer_V1"
+TASK_DESCRIPTION   = "pick up the pipe bomb from the box and place it at the marked location"
 
 
 def load_smolvla_policy(policy_path: str):
@@ -177,8 +177,8 @@ def build_arg_parser():
                         help="相机后台采集帧率 fps（默认: 30）")
     parser.add_argument("--control-fps", "--fps", dest="control_fps", type=int, default=10,
                         help="模型触发和机器人控制频率 Hz（默认: 10；--fps 为兼容别名）")
-    parser.add_argument("--duration", type=float, default=120.0,
-                        help="最大运行时长（秒，默认: 120）")  # --duration 控制整个推理程序的最长运行时间，单位是秒（默认 120 秒 = 2 分钟）。
+    parser.add_argument("--duration", type=float, default=180.0,
+                        help="最大运行时长（秒，默认: 180）")  # --duration 控制整个推理程序的最长运行时间，单位是秒（默认 180 秒 = 3 分钟）。
 
     # VLA confidence
     parser.add_argument("--confidence-method", type=str, default="regression_cbc",

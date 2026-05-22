@@ -19,7 +19,7 @@ set -euo pipefail
 uv run python important_code/training/run_train_clean.py \
   --policy.path=TrossenRoboticsCommunity/smolvla_solo_red_block \
   --policy.push_to_hub=true \
-  --policy.repo_id=kaixiyao/smolvla_widowx_grape_grasping_V4_pos234_10hz \
+  --policy.repo_id=kaixiyao/smolvla_pipe_bomb_transfer_V1 \
   \
   --policy.input_features='{
       "observation.state": {"type": "STATE", "shape": [7]},
@@ -30,15 +30,15 @@ uv run python important_code/training/run_train_clean.py \
       "action": {"type": "ACTION", "shape": [7]}
   }' \
   \
-  --dataset.repo_id=kaixiyao/widowxai_grape_grasping_V4_pos234_train_10hz \
-  --output_dir=outputs/train/smolvla_widowx_grape_grasping_V4_pos234_10hz \
-  --job_name=smolvla_widowx_grape_grasping_V4_pos234_10hz \
+  --dataset.repo_id=kaixiyao/widowxai_pipe_bomb_transfer_merged \
+  --output_dir=outputs/train/smolvla_pipe_bomb_transfer_V1 \
+  --job_name=smolvla_pipe_bomb_transfer_V1 \
   \
   --batch_size=64 \
   --num_workers=4 \
-  --steps=10000 \
-  --save_freq=1000 \
-  --policy.scheduler_decay_steps=10000 \
+  --steps=20000 \
+  --save_freq=5000 \
+  --policy.scheduler_decay_steps=20000 \
   --policy.optimizer_lr=2e-4 \
   --policy.n_action_steps=10 \
   --policy.chunk_size=25 \
@@ -47,7 +47,7 @@ uv run python important_code/training/run_train_clean.py \
   --policy.use_amp=true \
   \
   --wandb.enable=true \
-  --wandb.project=smolvla_widowx_grape_grasping \
+  --wandb.project=smolvla_pipe_bomb_transfer \
   \
   --rename_map='{
       "observation.images.right": "observation.images.cam_main",
