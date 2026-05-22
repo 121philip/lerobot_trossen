@@ -286,7 +286,7 @@ class ProgressDecayMonitor:
         self,
         window_s: float = 3.0,
         stuck_threshold: float = 0.02,
-        decay_lambda: float = 0.05,
+        decay_lambda: float = 0.1,
         floor: float = 0.2,
     ) -> None:
         self.window_s = float(window_s)
@@ -488,7 +488,7 @@ class SentinelRuntime:
         tau_action: float = 0.4,
         jerk_max: float | None = None,
         boundary_jump_max: float | None = None,
-        decay_lambda: float = 0.05,
+        decay_lambda: float = 0.1,
         stuck_threshold: float = 0.05,
         ema_beta: float = 0.8,
         eps: float = 1e-3,
@@ -564,7 +564,7 @@ class SentinelRuntime:
             tau_action=float(getattr(args, "sentinel_action_tau", 0.4)),
             jerk_max=_maybe_float(getattr(args, "sentinel_jerk_max", None)),
             boundary_jump_max=_maybe_float(getattr(args, "sentinel_boundary_jump_max", None)),
-            decay_lambda=float(getattr(args, "sentinel_decay_lambda", 0.05)),
+            decay_lambda=float(getattr(args, "sentinel_decay_lambda", 0.1)),
             stuck_threshold=float(getattr(args, "sentinel_stuck_threshold", 0.05)),
             ema_beta=float(getattr(args, "sentinel_ema_beta", 0.8)),
             eps=float(getattr(args, "sentinel_weight_eps", 1e-3)),
@@ -643,7 +643,9 @@ class SentinelRuntime:
         # c_vlm 保留 VLM 原始输出，仅记录，不参与仲裁公式。
         now = time.time()
         c_progress = self._progress_decay.c_progress(now)
-        r_raw = _clip01(min(fast.c_action, c_progress))
+        # C_action excluded from active weight pipeline; C_progress used directly.
+        # See thesis Section 4 (sec:caction_exploration) for the experimental rationale.
+        r_raw = _clip01(c_progress)
 
         progress_ok = progress is not None and not progress.stale and progress.c_progress is not None
         c_vlm = progress.c_progress if progress_ok else None
