@@ -33,6 +33,8 @@ def actor_thread_fn(
     shutdown_event: Event,
     args,
     rviz_publisher=None,    # RVizPublisher 实例，None 表示不可视化
+    trial_state=None,       # dict; on first send_action, sets trial_state["t_start"]
+                            #       used by run_inference.py for B2 trial timing
 ):
     """
     执行线程：以恒定 FPS（默认 10Hz）从动作队列取动作并发送给机器人。
@@ -72,6 +74,16 @@ def actor_thread_fn(
                     empty_since = None
                     empty_count = 0
                 action_dict = policy_action_to_robot_action(action)
+
+                # Latch trial start time on the first action actually sent to the robot.
+                # Used by B2 pure-VLA experiments (run_inference.py) to time the trial
+                # from "robot first commanded to move" until SIGINT.
+                if (
+                    trial_state is not None
+                    and trial_state.get("t_start") is None
+                    and robot_wrapper is not None
+                ):
+                    trial_state["t_start"] = time.time()
 
                 if robot_wrapper is not None:
                     robot_wrapper.send_action(action_dict)   # 发送给真实机器人

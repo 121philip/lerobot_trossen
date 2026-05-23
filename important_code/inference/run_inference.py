@@ -258,6 +258,17 @@ def build_arg_parser():
     parser.add_argument("--print-publish", action="store_true",
                         help="单独测试时打印 VLA 发布内容（无需 bridge_node 在线）")
 
+    # RQ3 trial logging (B2 pure-VLA timing).
+    # When --trial is given, a single-row summary CSV is appended on exit.
+    # t_start is latched at the first action sent to the robot by actor_thread.
+    parser.add_argument("--trial", type=int, default=None,
+                        help="RQ3 trial index (e.g. 1..20). Enables trial-summary CSV.")
+    parser.add_argument("--condition", type=str, default="B2",
+                        choices=["B1", "B2", "B3"],
+                        help="RQ3 experimental condition; used for the summary filename")
+    parser.add_argument("--out-dir", type=str, default="./logs",
+                        help="Directory for the per-condition summary CSV")
+
     return parser
 
 
@@ -375,6 +386,10 @@ def main():
     shutdown_event = Event()
     action_queue = make_action_queue(rtc_config)
 
+    # RQ3 trial timing: actor_thread latches t_start on the first send_action.
+    # Only enabled when --trial is supplied on the command line.
+    trial_state = {"t_start": None} if args.trial is not None else None
+
     # 始终启动 RViz 可视化发布线程（UDP fire-and-forget，无接收方时无副作用）
     from important_code.inference.rviz_publisher import RVizPublisher
     rviz_publisher = RVizPublisher(verbose=args.print_publish)
@@ -399,7 +414,7 @@ def main():
     act_thread = Thread(
         target=actor_thread_fn,
         args=(robot_wrapper, action_queue, shutdown_event, args),
-        kwargs={"rviz_publisher": rviz_publisher},
+        kwargs={"rviz_publisher": rviz_publisher, "trial_state": trial_state},
         daemon=True, name="ActorThread",
     )
     if args.display_data:
@@ -449,6 +464,43 @@ def main():
 
     if args.display_data:
         rr.rerun_shutdown()
+
+    # ── 8. RQ3 trial summary (only when --trial was supplied) ───────────────
+    if trial_state is not None:
+        import csv
+        from pathlib import Path
+
+        t_end = time.time()
+        t_start = trial_state.get("t_start")
+        if t_start is None:
+            t_trial = float("nan")
+            logger.warning(
+                "[TRIAL] No action was sent to the robot; T_trial recorded as NaN."
+            )
+        else:
+            t_trial = t_end - t_start
+
+        out_dir = Path(args.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        summary_path = out_dir / f"{args.condition}_summary.csv"
+        write_header = not summary_path.exists()
+        with open(summary_path, "a", newline="") as f:
+            w = csv.writer(f)
+            if write_header:
+                w.writerow([
+                    "trial_id", "condition", "T_trial_s",
+                    "CE_velocity", "n_gripper_press", "gripper_rate_hz",
+                    "n_mode_switch", "raw_csv",
+                ])
+            # B2 has no SpaceMouse logging; CE_velocity / gripper / mode fields are blank.
+            w.writerow([
+                int(args.trial), args.condition, f"{t_trial:.6f}",
+                "", "", "", "", "",
+            ])
+        logger.info(
+            "[TRIAL] cond=%s trial=%d T_trial=%.3f s -> %s",
+            args.condition, args.trial, t_trial, summary_path,
+        )
 
     logger.info("Done.")
 
