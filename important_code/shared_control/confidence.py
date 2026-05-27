@@ -198,7 +198,7 @@ class ConfidenceEstimator:
         c_raw = float(np.exp(-self.gamma * raw_mse))
         c_speed_norm = float(np.exp(-self.gamma * raw_mse / (speed_norm + self.epsilon)))
         c_regression = float(np.exp(-self.gamma * reg_residual))
-        print("c_regression: ", c_regression)
+        # print("c_regression: ", c_regression)
         c_action = self.select_confidence(c_raw, c_speed_norm, c_regression, c_tracking)
 
         self.prev_chunk = chunk.copy()

@@ -215,17 +215,15 @@ def build_arg_parser():
                         help="VLM failure_likelihood threshold for raw progress alarms")
     parser.add_argument("--sentinel-progress-alarm-count", type=int, default=2,
                         help="Consecutive raw progress alarms required to trigger progress_alarm")
-    parser.add_argument("--sentinel-ema-beta", type=float, default=0.6,
+    parser.add_argument("--sentinel-ema-beta", type=float, default=0.8,
                         help="EMA beta for smoothing Sentinel reliability before weight output")
-    parser.add_argument("--sentinel-weight-eps", type=float, default=1e-3,
-                        help="Small positive value added to both Sentinel weights")
     parser.add_argument("--sentinel-window-s", type=float, default=4.0,
                         help="Camera time window used for VLM progress checks")
     parser.add_argument("--sentinel-max-frames", type=int, default=6,
                         help="Maximum frames sampled into each Sentinel VLM image grid")
     parser.add_argument("--sentinel-progress-max-age-s", type=float, default=8.0,
                         help="Maximum age before a VLM progress result is considered stale")
-    parser.add_argument("--sentinel-decay-lambda", type=float, default=0.05,
+    parser.add_argument("--sentinel-decay-lambda", type=float, default=0.1,
                         help="Exponential decay rate for c_progress when robot is stuck (half-life = ln2/lambda ≈ 14s).")
     parser.add_argument("--sentinel-stuck-threshold", type=float, default=0.05,
                         help="Max joint range (rad) across the motion window before robot is considered stuck. "
@@ -388,7 +386,7 @@ def main():
 
     # RQ3 trial timing: actor_thread latches t_start on the first send_action.
     # Only enabled when --trial is supplied on the command line.
-    trial_state = {"t_start": None} if args.trial is not None else None
+    trial_state = {"t_start": None, "t_end": None} if args.trial is not None else None
 
     # 始终启动 RViz 可视化发布线程（UDP fire-and-forget，无接收方时无副作用）
     from important_code.inference.rviz_publisher import RVizPublisher
@@ -446,6 +444,8 @@ def main():
             time.sleep(0.5)
     except KeyboardInterrupt:
         logger.info("Ctrl+C → 推理停止。")
+        if trial_state is not None:
+            trial_state["t_end"] = time.time()
 
     # ── 6. 清理 ──────────────────────────────────────────────────
     shutdown_event.set()
@@ -470,7 +470,7 @@ def main():
         import csv
         from pathlib import Path
 
-        t_end = time.time()
+        t_end = trial_state.get("t_end") or time.time()
         t_start = trial_state.get("t_start")
         if t_start is None:
             t_trial = float("nan")

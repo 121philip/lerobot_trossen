@@ -56,7 +56,7 @@ def _save_sentinel_plot(records: list, log_dir: str) -> None:
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     csv_path = out / f"sentinel_metrics_{stamp}.csv"
-    fieldnames = ["t", "c_action", "c_progress", "c_vlm", "r_raw", "r_smooth", "w_vla", "w_human"]
+    fieldnames = ["t", "c_progress", "r_smooth", "w_vla", "w_human"]
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -64,39 +64,28 @@ def _save_sentinel_plot(records: list, log_dir: str) -> None:
     logger.info("[SENTINEL] Saved CSV → %s", csv_path)
 
     t          = [r["t"] for r in records]
-    c_action   = [r["c_action"] for r in records]
     c_progress = [r["c_progress"] for r in records]
-    c_vlm      = [r.get("c_vlm") if r.get("c_vlm") is not None else float("nan") for r in records]
-    r_raw      = [r["r_raw"] for r in records]
     r_smooth   = [r["r_smooth"] for r in records]
     w_vla      = [r["w_vla"] for r in records]
     w_human    = [r["w_human"] for r in records]
 
-    fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
+    fig, axes = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
     fig.suptitle("Sentinel Metrics over Follower Runtime", fontsize=13)
 
-    axes[0].plot(t, c_action,   label="c_action",   color="steelblue")
     axes[0].plot(t, c_progress, label="c_progress", color="darkorange", linestyle="--")
-    axes[0].plot(t, c_vlm,      label="c_vlm",      color="green",      linestyle=":", alpha=0.6)
-    axes[0].set_ylabel("Confidence")
+    axes[0].plot(t, r_smooth,   label="r",           color="purple")
+    axes[0].set_ylabel("Progress / Reliability")
     axes[0].set_ylim(-0.05, 1.1)
     axes[0].legend(loc="upper right", fontsize=8)
     axes[0].grid(True, alpha=0.3)
 
-    axes[1].plot(t, r_raw,    label="r_raw",    color="gray",   linestyle=":")
-    axes[1].plot(t, r_smooth, label="r_smooth", color="purple")
-    axes[1].set_ylabel("Reliability (r)")
+    axes[1].plot(t, w_vla,   label="w_vla",   color="royalblue")
+    axes[1].plot(t, w_human, label="w_human", color="tomato")
+    axes[1].set_ylabel("Weight")
+    axes[1].set_xlabel("Follower Runtime (s)")
     axes[1].set_ylim(-0.05, 1.1)
     axes[1].legend(loc="upper right", fontsize=8)
     axes[1].grid(True, alpha=0.3)
-
-    axes[2].plot(t, w_vla,   label="w_vla",   color="royalblue")
-    axes[2].plot(t, w_human, label="w_human", color="tomato")
-    axes[2].set_ylabel("Weight")
-    axes[2].set_xlabel("Follower Runtime (s)")
-    axes[2].set_ylim(-0.05, 1.1)
-    axes[2].legend(loc="upper right", fontsize=8)
-    axes[2].grid(True, alpha=0.3)
 
     plt.tight_layout()
     plot_path = out / f"sentinel_metrics_{stamp}.png"
@@ -267,8 +256,8 @@ def inference_thread_fn(
                     queued_original_chunk = full_original_chunk[:n_action_steps]
                     queued_robot_chunk = full_robot_chunk[:n_action_steps]
 
-                print(f"[DEBUG] queued_original_chunk shape={queued_original_chunk.shape}\n{queued_original_chunk.cpu().numpy()}")
-                print(f"[DEBUG] queued_robot_chunk    shape={queued_robot_chunk.shape}\n{queued_robot_chunk.cpu().numpy()}")
+                # print(f"[DEBUG] queued_original_chunk shape={queued_original_chunk.shape}\n{queued_original_chunk.cpu().numpy()}")
+                # print(f"[DEBUG] queued_robot_chunk    shape={queued_robot_chunk.shape}\n{queued_robot_chunk.cpu().numpy()}")
 
                 confidence_metrics = confidence_estimator.update(
                     queued_robot_chunk,
@@ -302,12 +291,11 @@ def inference_thread_fn(
                     )
                     logger.info(
                         "[SENTINEL] c_action=%.4f c_progress=%.4f c_vlm=%s "
-                        "r_raw=%.4f r=%.4f w_vla=%.4f w_human=%.4f "
+                        "r=%.4f w_vla=%.4f w_human=%.4f "
                         "alarm=%s progress_stale=%s vlm_latency=%s reason=%s",
                         sentinel_result.c_action,
                         sentinel_result.c_progress,
                         f"{sentinel_result.c_vlm:.4f}" if sentinel_result.c_vlm is not None else "None",
-                        sentinel_result.r_raw,
                         sentinel_result.r_smooth,
                         sentinel_result.w_vla,
                         sentinel_result.w_human,
@@ -316,22 +304,16 @@ def inference_thread_fn(
                         f"{sentinel_result.vlm_latency_s:.3f}s" if sentinel_result.vlm_latency_s is not None else "None",
                         sentinel_result.reason,
                     )
-                    c_vlm_text = f"{sentinel_result.c_vlm:.4f}" if sentinel_result.c_vlm is not None else "None"
                     print(
                         "[SENTINEL_VALUES] "
-                        f"C_action={sentinel_result.c_action:.4f} "
                         f"C_progress={sentinel_result.c_progress:.4f} "
-                        f"C_VLM={c_vlm_text} "
-                        f"R_raw={sentinel_result.r_raw:.4f} "
-                        f"R={sentinel_result.r_smooth:.4f}",
+                        f"R={sentinel_result.r_smooth:.4f} "
+                        f"w_vla={sentinel_result.w_vla:.4f}",
                         flush=True,
                     )
                     sentinel_records.append({
                         "t":          time.perf_counter() - _inference_start,
-                        "c_action":   sentinel_result.c_action,
                         "c_progress": sentinel_result.c_progress,
-                        "c_vlm":      sentinel_result.c_vlm,
-                        "r_raw":      sentinel_result.r_raw,
                         "r_smooth":   sentinel_result.r_smooth,
                         "w_vla":      sentinel_result.w_vla,
                         "w_human":    sentinel_result.w_human,

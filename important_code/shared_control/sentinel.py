@@ -94,7 +94,6 @@ class SentinelArbitrationResult:
     progress_alarm: bool
     progress_stale: bool
     sentinel_alarm: bool
-    r_raw: float
     r_smooth: float
     w_vla: float
     w_human: float
@@ -491,13 +490,12 @@ class SentinelRuntime:
         decay_lambda: float = 0.1,
         stuck_threshold: float = 0.05,
         ema_beta: float = 0.8,
-        eps: float = 1e-3,
         client: CloudVLMClient | None = None,
     ) -> None:
         # 这些参数基本对应 CLI：
         # interval/timeout/window 控制 slow VLM；
         # tau_action/jerk/boundary 控制 fast action alarm；
-        # ema_beta/eps 控制最终权重平滑和避免 0 权重。
+        # ema_beta 控制最终权重平滑。floor=0.2 保证 w_vla 不会到 0，无需 eps。
         self.frame_buffer = SentinelFrameBuffer(max_age_s=progress_max_age_s)
         self.client = client or CloudVLMClient(provider, model)
         self.task = task
@@ -517,7 +515,6 @@ class SentinelRuntime:
         self.decay_lambda = float(decay_lambda)
         self.stuck_threshold = float(stuck_threshold)
         self.ema_beta = float(ema_beta)
-        self.eps = float(eps)
 
         self._latest_progress: ProgressMonitorResult | None = None
         self._latest_lock = threading.Lock()
@@ -567,7 +564,6 @@ class SentinelRuntime:
             decay_lambda=float(getattr(args, "sentinel_decay_lambda", 0.1)),
             stuck_threshold=float(getattr(args, "sentinel_stuck_threshold", 0.05)),
             ema_beta=float(getattr(args, "sentinel_ema_beta", 0.8)),
-            eps=float(getattr(args, "sentinel_weight_eps", 1e-3)),
         )
 
     def start(self) -> None:
@@ -643,17 +639,14 @@ class SentinelRuntime:
         # c_vlm 保留 VLM 原始输出，仅记录，不参与仲裁公式。
         now = time.time()
         c_progress = self._progress_decay.c_progress(now)
-        # C_action excluded from active weight pipeline; C_progress used directly.
-        # See thesis Section 4 (sec:caction_exploration) for the experimental rationale.
-        r_raw = _clip01(c_progress)
 
         progress_ok = progress is not None and not progress.stale and progress.c_progress is not None
         c_vlm = progress.c_progress if progress_ok else None
         progress_alarm = bool(progress.alarm) if progress_ok else False
 
         self._r_smooth = (
-            r_raw if self._r_smooth is None
-            else self.ema_beta * self._r_smooth + (1 - self.ema_beta) * r_raw
+            c_progress if self._r_smooth is None
+            else self.ema_beta * self._r_smooth + (1 - self.ema_beta) * c_progress
         )
         r = _clip01(self._r_smooth)
 
@@ -670,10 +663,9 @@ class SentinelRuntime:
             progress_alarm=progress_alarm,
             progress_stale=not progress_ok,
             sentinel_alarm=fast.action_alarm or progress_alarm,
-            r_raw=r_raw,
             r_smooth=r,
-            w_vla=r + self.eps,
-            w_human=1.0 - r + self.eps,
+            w_vla=r,
+            w_human=1.0 - r,
             reason=reason,
             vlm_latency_s=progress.latency_s if progress is not None else None,
         )
