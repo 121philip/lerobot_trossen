@@ -65,22 +65,34 @@ Usage:
   # RTC 调试模式：
   python important_code/inference/run_inference.py --dry-run --rtc --debug
 
-  # RViz 可视化默认开启，启动前先在 crospi workspace 运行可视化节点：
-  python important_code/inference/run_inference.py --dry-run   # 干跑验证
+  # CroSPI shared-control runtime (B2/B3)：
+  #   先在 kaixi_crospi_ws 侧启动 SpaceMouse、crospi_node、visualization/bridge、runner。
+  #   然后在 lerobot_trossen 目录运行：
+  python important_code/inference/run_inference.py --sentinel --no-sentinel-log-only --crospi --display-data
 
-RViz 可视化使用步骤：
-  1. 终端1（先启动，在 kaixi_crospi_ws）：
+CroSPI/RViz 使用步骤：
+  1. 终端1（kaixi_crospi_ws）：
+       ros2 launch spacenav classic-launch.py
+
+  2. 终端2（kaixi_crospi_ws）：
+       ros2 run crospi_core crospi_node --ros-args \
+         -p config_file:="$[crospi_application_template]/applications/trossen_applications/trossen_vla_shared_control.setup.json" \
+         -p simulation:=false
+
+  3. 终端3（kaixi_crospi_ws，可视化/bridge）：
        ros2 launch crospi_application_template trossen_follower_visualization.launch.py
-     该命令会启动 vla_ros_bridge_node.py + robot_state_publisher 并打开 RViz2。
 
-  2. 终端2（后启动）：
-       python important_code/inference/run_inference.py [其他参数]
+  4. 终端4（kaixi_crospi_ws）：
+       python3 kaixi_crospi_ws/src/crospi_application_template/skill_specifications/libraries/test_trossen/skill_specifications/trossen_vla_shared_control_runner.py
 
-  3. RViz 中可以看到：
+  5. 终端5（lerobot_trossen，B2/B3 VLA inference）：
+       python important_code/inference/run_inference.py --sentinel --no-sentinel-log-only --crospi --display-data
+
+  6. RViz 中可以看到：
        蓝色实体机器人        = 真实混合轨迹（VLA + SpaceMouse，来自 /joint_states 反馈）
        绿色球 + 橙红色线     = 末端执行器当前位置 + 未来 N 步预测轨迹（/predicted_ee_marker）
 
-  4. 诊断方法：
+  7. 诊断方法：
        橙线抖动、蓝机器人也抖 → 模型预测本身不稳定，考虑调整 guidance_weight
        橙线平滑、蓝机器人抖动 → 执行层问题（max_relative_target 截断或硬件延迟）
        橙线与蓝机器人末端长期偏差 → 归一化参数或关节映射问题
