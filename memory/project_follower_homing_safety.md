@@ -43,7 +43,7 @@ Step 2（原有）: 移动到 sleep 位置 [0,0,0,0,0,0,0]
 
 ## 推理过程中的键盘安全控制
 
-文件：`important_code/inference/run_inference_rtc.py`
+文件：`important_code/inference/run_inference.py`（旧 `run_inference_rtc.py` 已合并进主入口，RTC 现在是可选 flag）
 
 新增交互：
 - **Q 键**：停止推理线程，机械臂就地保持（不回正）

@@ -64,7 +64,7 @@ Relevant files:
 
 - `important_code/diagnostics/teleoperation.py`
 - `important_code/data_collection/record_episode.py`
-- `important_code/inference/run_inference_rtc.py`
+- `important_code/inference/run_inference.py`
 
 Current intended mapping:
 

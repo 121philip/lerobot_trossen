@@ -5,11 +5,11 @@
 - [RealSense D405 Camera Configuration](project_realsense_camera_config.md) — video node selection (YUYV vs UYVY), Path vs int index, lerobot occupancy false-negative, unsupported controls
 - [fourcc: YUY2 vs YUYV on Linux](project_fourcc_linux_windows.md) — YUY2 silently fails on Linux V4L2; use YUYV instead
 - [Follower 安全回正与诊断工具](project_follower_homing_safety.md) — disconnect() 三步回正(joint_3预步骤)、Q/R键盘控制、电机健康监控脚本、JointLimit正确属性名
-- [RViz 推理轨迹可视化系统](project_rviz_visualization.md) — UDP桥接架构、预测EE marker、CroSPI shared-control 橙蓝轨迹脱节诊断、alpha/target锁存/eTaSL约束问题
+- [RViz 推理轨迹可视化系统](project_rviz_visualization.md) — UDP桥接架构、预测EE marker、CroSPI shared-control 橙蓝轨迹脱节诊断、direct weights/target锁存/eTaSL约束问题
 - [SmolVLA LoRA 训练配置与冻结策略](project_lora_training.md) — PEFT/LoRA 支持、target_modules、train_expert_only/freeze_vision_encoder/train_state_proj 三个冻结参数（默认均True）
 - [SmolVLA V4 数据集处理、微调与离线验证](project_smolvla_v4_training_validation.md) — V4 position2/3/4 分层 split/merge、Trossen checkpoint LoRA 微调、train/val 离线 checkpoint 评估、CSV/JSON/Matplotlib 图输出、checkpoints/last 含义、LoRA adapter 加载修复、HF 文件小原因、自动化脚本与 skip-data-prep 注意事项
 - [SmolVLA 10Hz 推理运行时分析](project_smolvla_10hz_inference_runtime.md) — `chunk_size=25`/`n_action_steps=10` 语义、async 与 RTC 区别、30fps 相机 + 10Hz 控制部署、非 RTC 截断和运行命令
-- [VLA 共享控制系统架构](project_vla_shared_control_architecture.md) — 关键文件、UDP 协议、eTaSL 权重配置、双进程桥接原因、CroSPI 200Hz/VLA 10Hz 频率
+- [VLA 共享控制系统架构](project_vla_shared_control_architecture.md) — 当前 VLA+SpaceMouse+CroSPI/eTaSL 架构、UDP direct weights、`/pose_VLA`、`/shared_control/weights`、六步启动顺序
 - [bridge node FK 正向运动学分析结论](project_fk_analysis_verified.md) — FK 参数已验证正确；predicted_ee_marker 偏差是共享控制预期行为，非 Bug；改进方向
 - [WidowX AI Follower 运动学链结构](project_urdf_kinematic_chain.md) — 完整关节链、EE 路径、gripper 分支、7-DOF 顺序
 - [VLA 按钮触发抖动调试记录](project_vla_button_shaking_debug.md) — 统一根因(VLA obs-action mismatch)、左键仅HUMAN_ONLY有效、alignment=3s>ramp=1.5s设计、全部修复清单
