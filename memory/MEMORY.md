@@ -14,3 +14,4 @@
 - [WidowX AI Follower 运动学链结构](project_urdf_kinematic_chain.md) — 完整关节链、EE 路径、gripper 分支、7-DOF 顺序
 - [VLA 按钮触发抖动调试记录](project_vla_button_shaking_debug.md) — 统一根因(VLA obs-action mismatch)、左键仅HUMAN_ONLY有效、alignment=3s>ramp=1.5s设计、全部修复清单
 - [regression-CBC 归一化空间修复](project_confidence_cbc_normalization_fix.md) — 夹爪关节尺度偏差问题、CBC 改用 actions_normalized（归一化空间）、tracking 保留机器人空间、关键文件与设计约束
+- [Sentinel EMA beta 分析与简化](project_sentinel_ema_analysis.md) — 推理频率 1 Hz 计算、c_progress 瞬时恢复+r_smooth 渐进恢复、beta=0.5 选型、r_raw 移除、CLI vs 类默认值不一致 bug、画图简化为 2 子图
